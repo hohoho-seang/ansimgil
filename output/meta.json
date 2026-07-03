@@ -1,0 +1,22 @@
+{
+  "metrics": {
+    "train_r2": 0.8115517293686055,
+    "test_r2": 0.5254912747851979,
+    "test_mae": 1.0804611866982072,
+    "feature_importance": {
+      "road_prox": 0.206,
+      "light_cnt": 0.216,
+      "cctv_cnt": 0.357,
+      "slope": 0.222
+    }
+  },
+  "route": {
+    "dist_m": 2220.0,
+    "weighted_cost": 3503.8,
+    "graph": {
+      "nodes": 3513,
+      "edges": 3672,
+      "largest_comp": 2777
+    }
+  }
+}

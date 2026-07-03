@@ -1,0 +1,559 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>안심길 — 안전 경로 3D</title>
+
+<script src="config.js"></script>
+<script>
+  // V-World 3D 로더(webglMapInit)는 내부적으로 document.write 로 라이브러리를 주입하므로
+  // 문서 파싱 단계에서 로드해야 vw 가 정의된다.
+  (function () {
+    var key = window.VWORLD_API_KEY || "";
+    var dom = window.VWORLD_DOMAIN || window.location.hostname || "localhost";
+    if (key) {
+      document.write(
+        '<scr' + 'ipt type="text/javascript" src="https://map.vworld.kr/js/webglMapInit.js.do' +
+        '?version=3.0&apiKey=' + encodeURIComponent(key) + '&domain=' + encodeURIComponent(dom) +
+        '"><\/scr' + 'ipt>');
+    }
+  })();
+</script>
+
+<style>
+  html, body { margin: 0; height: 100%; font-family: 'Malgun Gothic', sans-serif; background:#0b0e13; }
+  #vmap { width: 100%; height: 100%; }
+  .panel { position: absolute; z-index: 10; background: rgba(20,24,33,.86); color:#fff;
+           border-radius: 10px; padding: 12px 14px; font-size: 13px; line-height: 1.5;
+           box-shadow: 0 4px 16px rgba(0,0,0,.4); }
+  #title { top: 12px; left: 12px; font-size: 15px; font-weight: 700; }
+  #title small { display:block; font-weight:400; opacity:.8; font-size:11px; margin-top:2px; }
+
+  #ctrl { top: 70px; left: 12px; width: 260px; }
+  #ctrl h4 { margin: 0 0 8px; font-size: 12px; opacity:.85; font-weight:600; }
+  #ctrl .row { display:flex; gap:6px; margin-bottom:6px; align-items:center; }
+  #ctrl input[type=text] { flex:1; min-width:0; padding:6px 8px; border-radius:6px; border:1px solid #3a4152;
+           background:#11151d; color:#fff; font-size:12px; }
+  #ctrl button { padding:6px 9px; border:0; border-radius:6px; background:#2b3446; color:#fff;
+           font-size:12px; cursor:pointer; white-space:nowrap; }
+  #ctrl button:hover { background:#38445c; }
+  #ctrl button.primary { background:#2d7ef7; }
+  #ctrl button.primary:hover { background:#3b8bff; }
+  #ctrl .hint { font-size:11px; opacity:.6; margin:2px 0 8px; }
+  #ctrl .sep { border-top:1px solid #2a3140; margin:8px 0; }
+  #ctrl label.ck { display:flex; align-items:center; gap:6px; font-size:12px; cursor:pointer; }
+  #ctrl .layer { display:flex; gap:12px; font-size:12px; margin-top:6px; }
+  #status { margin-top:8px; font-size:12px; min-height:16px; }
+  #status b { color:#5fd08a; }
+
+  #ctrl .ac { position:relative; flex:1; min-width:0; }
+  #ctrl .ac input { width:100%; box-sizing:border-box; }
+  .sugg { position:absolute; top:calc(100% + 2px); left:0; right:0; z-index:30;
+          background:#11151d; border:1px solid #3a4152; border-radius:6px;
+          max-height:240px; overflow-y:auto; display:none; }
+  .sugg.open { display:block; }
+  .sugg .it { padding:7px 9px; cursor:pointer; border-bottom:1px solid #222a37; }
+  .sugg .it:hover { background:#243049; }
+  .sugg .it .t { font-size:12px; color:#fff; }
+  .sugg .it .a { font-size:10.5px; color:#9aa4b5; margin-top:1px; }
+  .sugg .empty { padding:8px 9px; font-size:11px; color:#9aa4b5; }
+
+  #legend { bottom: 18px; left: 12px; }
+  #legend .bar { height:10px; width:180px; border-radius:5px; margin:7px 0 3px; }
+  #legend .bar.risk { background: linear-gradient(90deg,#19c80a,#e6e60a,#dc1414); }
+  #legend .bar.diff { background: linear-gradient(90deg,#3cc8d2,#8c6ed2,#e6327a); }
+  #legend .row { display:flex; justify-content:space-between; width:180px; font-size:11px; opacity:.85; }
+  #err { top:50%; left:50%; transform:translate(-50%,-50%); background:rgba(150,24,24,.94);
+         display:none; max-width:380px; }
+</style>
+</head>
+<body>
+  <div id="vmap"></div>
+  <div id="title" class="panel">🛡️ 안심길 (Safe Path)
+    <small>V-World 실도로망 기반 보행 안전경로 · 하남시 덕풍동</small></div>
+
+  <div id="ctrl" class="panel">
+    <h4>🧭 길찾기</h4>
+    <div class="row">
+      <div class="ac">
+        <input type="text" id="startAddr" placeholder="출발지 검색 (예: 남한고등학교)" autocomplete="off" />
+        <div class="sugg" id="startSugg"></div>
+      </div>
+      <button id="gpsBtn" title="내 위치(GPS)">📍</button>
+    </div>
+    <div class="row">
+      <div class="ac">
+        <input type="text" id="goalAddr" placeholder="도착지 검색 (예: 하남시청)" autocomplete="off" />
+        <div class="sugg" id="goalSugg"></div>
+      </div>
+    </div>
+    <div class="row">
+      <button id="findBtn" class="primary">경로 찾기</button>
+      <button id="clickStartBtn">지도서 출발</button>
+      <button id="clickGoalBtn">지도서 도착</button>
+      <button id="resetBtn">초기화</button>
+    </div>
+    <div class="hint">장소명을 입력해 추천 목록에서 선택하세요. 지도 클릭도 가능(출발→도착).</div>
+    <div class="row">
+      <button id="simBtn" class="primary">▶ 경로 따라가기</button>
+      <button id="trackBtn">실시간 위치</button>
+      <button id="simStopBtn">⏹ 정지</button>
+    </div>
+    <div class="sep"></div>
+    <label class="ck"><input type="checkbox" id="avoidDiff" /> 보행난이도 회피 경로</label>
+    <div class="layer">레이어:
+      <label class="ck"><input type="radio" name="layer" id="layerRisk" checked /> 위험도</label>
+      <label class="ck"><input type="radio" name="layer" id="layerDiff" /> 보행난이도</label>
+    </div>
+    <div id="status">불러오는 중…</div>
+  </div>
+
+  <div id="legend" class="panel">
+    <span id="legendTitle">위험도 (risk)</span>
+    <div class="bar risk" id="legendBar"></div>
+    <div class="row"><span>낮음 0</span><span>높음 1</span></div>
+    <div style="margin-top:8px;">━━ <span style="color:#37b6ff">추천 경로</span>
+      &nbsp; ── <span style="color:#dddddd">도로망</span></div>
+  </div>
+  <div id="err" class="panel"></div>
+
+<script>
+(function () {
+  const DOMAIN = window.VWORLD_DOMAIN || window.location.hostname || "localhost";
+  const KEY = window.VWORLD_API_KEY || "";
+  const RISK_W = 4.0, DIFF_W = 4.0;         // 경로비용 가중치(파이썬 config와 동일 개념)
+  const MAXH = 45, ROAD_H = MAXH + 8, ROUTE_H = MAXH + 18;
+  const R = 6371000;
+
+  const APP = {
+    area: null, rows: 0, cols: 0, riskM: null, diffM: null,
+    nodes: new Map(), adj: new Map(), comp: new Set(),
+    startLL: null, goalLL: null, nextClick: "start", lastRoute: null,
+    ent: { start: null, goal: null, route: null, me: null },
+    boxes: [], layer: "risk", simTimer: null, watchId: null,
+  };
+
+  if (!KEY) { showErr("V-World 인증키가 없습니다. web/config.js 를 확인하세요."); return; }
+  waitForVw(0);
+
+  function waitForVw(n) {
+    if (window.vw && vw.Map) { initMap(); return; }
+    if (n > 100) { showErr("V-World 라이브러리 로드 실패(vw 미정의). 도메인(" + DOMAIN + ")·포트 확인."); return; }
+    setTimeout(() => waitForVw(n + 1), 50);
+  }
+
+  function initMap() {
+    try {
+      const opt = {
+        mapId: "vmap",
+        initPosition: new vw.CameraPosition(
+          new vw.CoordZ(127.213, 37.540, 2600), new vw.Direction(0, -55, 0)),
+        logo: true, navigation: true,
+      };
+      const map = new vw.Map();
+      map.setOption(opt); map.setMapId("vmap"); map.start();
+      waitForViewer(0);
+    } catch (e) { showErr("지도 초기화 오류: " + e.message); }
+  }
+
+  function waitForViewer(n) {
+    if (window.ws3d && ws3d.viewer && window.Cesium) { boot(); return; }
+    if (n > 150) { showErr("3D 뷰어 준비 시간 초과."); return; }
+    setTimeout(() => waitForViewer(n + 1), 100);
+  }
+
+  // ── 데이터 로드 & 초기화 ─────────────────────────────────────────
+  async function boot() {
+    const V = ws3d.viewer;
+    V.scene.globe.depthTestAgainstTerrain = false;
+    const bust = "?t=" + Date.now();
+    let grid, roads;
+    try {
+      grid = await (await fetch("output/risk_grid.json" + bust)).json();
+      roads = await (await fetch("output/roads_web.json" + bust)).json();
+    } catch (e) {
+      showErr("output JSON 로드 실패. <b>python main.py</b> 후 <b>python -m http.server 8000</b> 로 여세요.");
+      return;
+    }
+
+    APP.area = grid.area; APP.rows = grid.grid.rows; APP.cols = grid.grid.cols;
+    buildMatrices(grid.cells);
+    drawRoads(V, roads);
+    buildGraph(roads);
+    APP.comp = largestComponent();
+    renderBoxes(V, "risk");
+    bindUI(V);
+
+    // 초기 기본 경로(영역 대각선)
+    const a = APP.area, sp = 0.15;
+    setStart(V, a.lon_min + sp * (a.lon_max - a.lon_min), a.lat_min + sp * (a.lat_max - a.lat_min));
+    setGoal(V, a.lon_max - sp * (a.lon_max - a.lon_min), a.lat_max - sp * (a.lat_max - a.lat_min));
+    APP.nextClick = "start";
+    computeRoute(V);
+    flyToArea(V);
+  }
+
+  // ── 격자 값 조회 ────────────────────────────────────────────────
+  function buildMatrices(cells) {
+    APP.riskM = Array.from({ length: APP.rows }, () => new Float32Array(APP.cols));
+    APP.diffM = Array.from({ length: APP.rows }, () => new Float32Array(APP.cols));
+    cells.forEach((c) => { APP.riskM[c.row][c.col] = c.risk; APP.diffM[c.row][c.col] = c.diff; });
+  }
+  function cellRC(lon, lat) {
+    const a = APP.area;
+    let c = Math.floor((lon - a.lon_min) / (a.lon_max - a.lon_min) * APP.cols);
+    let r = Math.floor((lat - a.lat_min) / (a.lat_max - a.lat_min) * APP.rows);
+    r = Math.min(Math.max(r, 0), APP.rows - 1); c = Math.min(Math.max(c, 0), APP.cols - 1);
+    return [r, c];
+  }
+  function valAt(M, lon, lat) { const rc = cellRC(lon, lat); return M[rc[0]][rc[1]]; }
+  function meters(lo1, la1, lo2, la2) {
+    const ml = (la1 + la2) / 2 * Math.PI / 180;
+    const x = (lo2 - lo1) * Math.PI / 180 * Math.cos(ml) * R;
+    const y = (la2 - la1) * Math.PI / 180 * R;
+    return Math.hypot(x, y);
+  }
+
+  // ── 도로망 그래프 ───────────────────────────────────────────────
+  function nkey(lon, lat) { return lon.toFixed(5) + "," + lat.toFixed(5); }
+  function buildGraph(roads) {
+    (roads.lines || []).forEach((line) => {
+      for (let i = 0; i < line.length - 1; i++) {
+        const [lo1, la1] = line[i], [lo2, la2] = line[i + 1];
+        const k1 = nkey(lo1, la1), k2 = nkey(lo2, la2);
+        if (!APP.nodes.has(k1)) { APP.nodes.set(k1, [lo1, la1]); APP.adj.set(k1, []); }
+        if (!APP.nodes.has(k2)) { APP.nodes.set(k2, [lo2, la2]); APP.adj.set(k2, []); }
+        if (k1 === k2) continue;
+        const dist = meters(lo1, la1, lo2, la2);
+        const risk = 0.5 * (valAt(APP.riskM, lo1, la1) + valAt(APP.riskM, lo2, la2));
+        const diff = 0.5 * (valAt(APP.diffM, lo1, la1) + valAt(APP.diffM, lo2, la2));
+        APP.adj.get(k1).push({ to: k2, dist, risk, diff });
+        APP.adj.get(k2).push({ to: k1, dist, risk, diff });
+      }
+    });
+  }
+  function largestComponent() {
+    const seen = new Set(); let best = new Set();
+    for (const src of APP.adj.keys()) {
+      if (seen.has(src)) continue;
+      const comp = new Set(), stack = [src];
+      while (stack.length) {
+        const n = stack.pop(); if (comp.has(n)) continue; comp.add(n);
+        for (const e of APP.adj.get(n)) if (!comp.has(e.to)) stack.push(e.to);
+      }
+      for (const n of comp) seen.add(n);
+      if (comp.size > best.size) best = comp;
+    }
+    return best;
+  }
+  function nearestNode(lon, lat) {
+    let best = null, bd = Infinity;
+    for (const k of APP.comp) {
+      const [nl, na] = APP.nodes.get(k); const d = meters(lon, lat, nl, na);
+      if (d < bd) { bd = d; best = k; }
+    }
+    return best;
+  }
+  function astar(sKey, gKey, useDiff) {
+    const [glon, glat] = APP.nodes.get(gKey);
+    const h = (k) => { const [l, a] = APP.nodes.get(k); return meters(l, a, glon, glat); };
+    const open = [[0, sKey]], g = new Map([[sKey, 0]]);
+    const gd = new Map([[sKey, 0]]), came = new Map(), closed = new Set();
+    while (open.length) {
+      open.sort((a, b) => a[0] - b[0]);           // 소규모 그래프 → 단순 정렬로 충분
+      const cur = open.shift()[1];
+      if (cur === gKey) break;
+      if (closed.has(cur)) continue; closed.add(cur);
+      for (const e of APP.adj.get(cur)) {
+        if (closed.has(e.to)) continue;
+        const step = e.dist * (1 + RISK_W * e.risk + (useDiff ? DIFF_W * e.diff : 0));
+        const ng = g.get(cur) + step;
+        if (ng < (g.has(e.to) ? g.get(e.to) : Infinity)) {
+          g.set(e.to, ng); gd.set(e.to, gd.get(cur) + e.dist); came.set(e.to, cur);
+          open.push([ng + h(e.to), e.to]);
+        }
+      }
+    }
+    if (!came.has(gKey) && sKey !== gKey) return null;
+    const path = [gKey]; while (came.has(path[path.length - 1])) path.push(came.get(path[path.length - 1]));
+    path.reverse();
+    let risk = 0, diff = 0;
+    for (const k of path) { const [l, a] = APP.nodes.get(k); risk += valAt(APP.riskM, l, a); diff += valAt(APP.diffM, l, a); }
+    return { coords: path.map((k) => APP.nodes.get(k)), dist: gd.get(gKey) || 0,
+             avgRisk: risk / path.length, avgDiff: diff / path.length };
+  }
+
+  function computeRoute(V) {
+    if (!APP.startLL || !APP.goalLL) return;
+    const s = nearestNode(APP.startLL[0], APP.startLL[1]);
+    const gk = nearestNode(APP.goalLL[0], APP.goalLL[1]);
+    if (!s || !gk) { setStatus("도로 노드를 찾지 못했습니다."); return; }
+    const useDiff = document.getElementById("avoidDiff").checked;
+    const res = astar(s, gk, useDiff);
+    if (!res) { setStatus("경로를 찾지 못했습니다."); return; }
+    APP.lastRoute = res.coords;
+    drawRoute(V, res.coords);
+    const km = res.dist >= 1000 ? (res.dist / 1000).toFixed(2) + "km" : Math.round(res.dist) + "m";
+    setStatus("실거리 <b>" + km + "</b> · 평균위험 " + res.avgRisk.toFixed(2) +
+              " · 평균난이도 " + res.avgDiff.toFixed(2) + (useDiff ? " · 난이도회피 ON" : ""));
+  }
+
+  // ── 렌더링 ─────────────────────────────────────────────────────
+  function riskColor(v) {
+    let r, g, b;
+    if (v < 0.5) { const t = v / 0.5; r = 25 + 205 * t; g = 200 + 30 * t; b = 10; }
+    else { const t = (v - 0.5) / 0.5; r = 230 - 10 * t; g = 230 - 210 * t; b = 10 + 10 * t; }
+    return Cesium.Color.fromBytes(Math.round(r), Math.round(g), Math.round(b), 115);
+  }
+  function diffColor(v) {
+    let r, g, b;
+    if (v < 0.5) { const t = v / 0.5; r = 60 + 80 * t; g = 200 - 90 * t; b = 210; }
+    else { const t = (v - 0.5) / 0.5; r = 140 + 90 * t; g = 110 - 60 * t; b = 210 - 90 * t; }
+    return Cesium.Color.fromBytes(Math.round(r), Math.round(g), Math.round(b), 115);
+  }
+  function renderBoxes(V, layer) {
+    APP.boxes.forEach((e) => V.entities.remove(e)); APP.boxes = [];
+    APP.layer = layer;
+    const isRisk = layer === "risk";
+    const M = isRisk ? APP.riskM : APP.diffM;
+    const thr = isRisk ? 0.08 : 0.40; // 난이도는 '걷기 힘든 곳' 위주로 표시
+    const a = APP.area;
+    const dlon = (a.lon_max - a.lon_min) / APP.cols, dlat = (a.lat_max - a.lat_min) / APP.rows;
+    for (let r = 0; r < APP.rows; r++) for (let c = 0; c < APP.cols; c++) {
+      const v = M[r][c]; if (v < thr) continue;
+      const lo0 = a.lon_min + c * dlon, la0 = a.lat_min + r * dlat;
+      APP.boxes.push(V.entities.add({
+        rectangle: {
+          coordinates: Cesium.Rectangle.fromDegrees(lo0, la0, lo0 + dlon, la0 + dlat),
+          material: isRisk ? riskColor(v) : diffColor(v),
+          height: 0, extrudedHeight: 4 + v * MAXH, outline: false,
+        },
+      }));
+    }
+    // 범례
+    document.getElementById("legendTitle").textContent = isRisk ? "위험도 (risk)" : "보행난이도 (difficulty)";
+    document.getElementById("legendBar").className = "bar " + (isRisk ? "risk" : "diff");
+  }
+  function drawRoads(V, roads) {
+    (roads.lines || []).forEach((line) => {
+      if (line.length < 2) return;
+      const deg = []; line.forEach((p) => deg.push(p[0], p[1], ROAD_H));
+      V.entities.add({ polyline: {
+        positions: Cesium.Cartesian3.fromDegreesArrayHeights(deg),
+        width: 2, material: Cesium.Color.fromBytes(255, 255, 255, 120) } });
+    });
+  }
+  function drawRoute(V, coords) {
+    if (APP.ent.route) V.entities.remove(APP.ent.route);
+    const deg = []; coords.forEach((p) => deg.push(p[0], p[1], ROUTE_H));
+    APP.ent.route = V.entities.add({ polyline: {
+      positions: Cesium.Cartesian3.fromDegreesArrayHeights(deg), width: 9,
+      material: new Cesium.PolylineGlowMaterialProperty({
+        glowPower: 0.28, color: Cesium.Color.fromBytes(55, 182, 255, 255) }) } });
+  }
+  function marker(V, lon, lat, label, color) {
+    return V.entities.add({
+      position: Cesium.Cartesian3.fromDegrees(lon, lat, ROUTE_H),
+      point: { pixelSize: 14, color: color, outlineColor: Cesium.Color.WHITE, outlineWidth: 2 },
+      label: { text: label, font: "14px sans-serif", fillColor: Cesium.Color.WHITE,
+        style: Cesium.LabelStyle.FILL_AND_OUTLINE, outlineWidth: 3, outlineColor: Cesium.Color.BLACK,
+        pixelOffset: new Cesium.Cartesian2(0, -22), verticalOrigin: Cesium.VerticalOrigin.BOTTOM } });
+  }
+  function setStart(V, lon, lat) {
+    APP.startLL = [lon, lat]; if (APP.ent.start) V.entities.remove(APP.ent.start);
+    APP.ent.start = marker(V, lon, lat, "출발", Cesium.Color.LIME);
+  }
+  function setGoal(V, lon, lat) {
+    APP.goalLL = [lon, lat]; if (APP.ent.goal) V.entities.remove(APP.ent.goal);
+    APP.ent.goal = marker(V, lon, lat, "도착", Cesium.Color.RED);
+  }
+  // 현재 위치 마커(청록 점) — GPS/시뮬 공용
+  function setMe(V, lon, lat) {
+    if (APP.ent.me) V.entities.remove(APP.ent.me);
+    APP.ent.me = V.entities.add({
+      position: Cesium.Cartesian3.fromDegrees(lon, lat, ROUTE_H + 6),
+      point: { pixelSize: 16, color: Cesium.Color.fromBytes(0, 220, 255, 255),
+        outlineColor: Cesium.Color.WHITE, outlineWidth: 3 },
+      label: { text: "현재위치", font: "12px sans-serif", fillColor: Cesium.Color.WHITE,
+        style: Cesium.LabelStyle.FILL_AND_OUTLINE, outlineWidth: 3, outlineColor: Cesium.Color.BLACK,
+        pixelOffset: new Cesium.Cartesian2(0, -20), verticalOrigin: Cesium.VerticalOrigin.BOTTOM } });
+  }
+  function stopSim() { if (APP.simTimer) { clearInterval(APP.simTimer); APP.simTimer = null; } }
+  // 계산된 경로를 따라 현재위치 마커를 이동(네이버 내비 시연)
+  function simulateAlong(V) {
+    const pts = APP.lastRoute;
+    if (!pts || pts.length < 2) { setStatus("먼저 경로를 만들어 주세요."); return; }
+    stopSim();
+    const cum = [0];
+    for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1] + meters(pts[i - 1][0], pts[i - 1][1], pts[i][0], pts[i][1]));
+    const total = cum[cum.length - 1];
+    const dur = Math.min(40000, Math.max(8000, total * 15)); // 8~40초
+    const t0 = performance.now();
+    APP.simTimer = setInterval(() => {
+      let f = (performance.now() - t0) / dur; if (f > 1) f = 1;
+      const d = f * total;
+      let i = 1; while (i < cum.length - 1 && cum[i] < d) i++;
+      const seg = Math.max(1e-6, cum[i] - cum[i - 1]), tt = Math.min(1, (d - cum[i - 1]) / seg);
+      const lon = pts[i - 1][0] + (pts[i][0] - pts[i - 1][0]) * tt;
+      const lat = pts[i - 1][1] + (pts[i][1] - pts[i - 1][1]) * tt;
+      setMe(V, lon, lat);
+      setStatus("🚶 이동 시뮬 " + Math.round(f * 100) + "% · 남은거리 " + Math.round(total - d) + "m");
+      if (f >= 1) { stopSim(); setStatus("🏁 목적지 도착! (총 " + Math.round(total) + "m)"); }
+    }, 100);
+  }
+  // 실시간 GPS 추적 토글
+  function toggleTrack(V, btn) {
+    if (APP.watchId != null) {
+      navigator.geolocation.clearWatch(APP.watchId); APP.watchId = null;
+      btn.textContent = "실시간 위치"; setStatus("실시간 추적 종료."); return;
+    }
+    if (!navigator.geolocation) { setStatus("이 브라우저는 GPS 미지원."); return; }
+    btn.textContent = "추적 중지"; setStatus("실시간 위치 추적 중…");
+    APP.watchId = navigator.geolocation.watchPosition((pos) => {
+      let lon = pos.coords.longitude, lat = pos.coords.latitude;
+      if (!inArea(lon, lat)) setStatus("⚠ 현재 위치가 덕풍동 밖 — 경계로 표시");
+      const p = clampArea(lon, lat); setMe(V, p[0], p[1]);
+    }, () => setStatus("위치 권한이 거부되었습니다."), { enableHighAccuracy: true, maximumAge: 1000 });
+  }
+  function flyToArea(V) {
+    const a = APP.area;
+    V.camera.flyTo({
+      destination: Cesium.Cartesian3.fromDegrees((a.lon_min + a.lon_max) / 2, a.lat_min - 0.004, 1700),
+      orientation: { heading: 0, pitch: Cesium.Math.toRadians(-50), roll: 0 }, duration: 2.0 });
+  }
+
+  // ── 입력(주소·GPS·클릭) ────────────────────────────────────────
+  function inArea(lon, lat) {
+    const a = APP.area;
+    return lon >= a.lon_min && lon <= a.lon_max && lat >= a.lat_min && lat <= a.lat_max;
+  }
+  function clampArea(lon, lat) {
+    const a = APP.area;
+    return [Math.min(Math.max(lon, a.lon_min), a.lon_max), Math.min(Math.max(lat, a.lat_min), a.lat_max)];
+  }
+  function esc(s) {
+    return (s || "").replace(/[&<>"]/g, (c) =>
+      ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  }
+  // JSONP: V-World 검색을 브라우저에서 직접 호출(CORS 우회) → 서버 프록시 불필요, 정적 배포 가능
+  function jsonp(url) {
+    return new Promise((resolve, reject) => {
+      const cb = "vwcb_" + Math.random().toString(36).slice(2);
+      const s = document.createElement("script");
+      const timer = setTimeout(() => { cleanup(); reject(new Error("timeout")); }, 8000);
+      function cleanup() { clearTimeout(timer); delete window[cb]; s.remove(); }
+      window[cb] = (data) => { cleanup(); resolve(data); };
+      s.onerror = () => { cleanup(); reject(new Error("jsonp error")); };
+      s.src = url + (url.indexOf("?") >= 0 ? "&" : "?") + "callback=" + cb;
+      document.head.appendChild(s);
+    });
+  }
+  async function poiSearch(query) {
+    const base = "https://api.vworld.kr/req/search?service=search&request=search&version=2.0" +
+      "&crs=EPSG:4326&size=8&format=json&key=" + encodeURIComponent(KEY) + "&query=" + encodeURIComponent(query);
+    for (const t of ["place", "address"]) {
+      try {
+        const j = await jsonp(base + "&type=" + t);
+        const items = (((j.response || {}).result || {}).items) || [];
+        const out = [];
+        items.forEach((it) => {
+          const p = it.point || {}, x = parseFloat(p.x), y = parseFloat(p.y);
+          if (isFinite(x) && isFinite(y)) {
+            const ad = it.address || {};
+            out.push({ title: it.title || query, addr: ad.road || ad.parcel || "", lon: x, lat: y });
+          }
+        });
+        if (out.length) return out;
+      } catch (e) { /* 다음 타입 시도 */ }
+    }
+    return [];
+  }
+  // 입력창에 자동완성 드롭다운 연결
+  function attachSearch(V, input, sugg, which) {
+    let timer = null, items = [];
+    const close = () => { sugg.classList.remove("open"); sugg.innerHTML = ""; };
+    const choose = (it) => {
+      input.value = it.title; close();
+      (which === "start" ? setStart : setGoal)(V, it.lon, it.lat);
+      if (!inArea(it.lon, it.lat)) setStatus("⚠ '" + it.title + "' 는 덕풍동 영역 밖입니다.");
+      computeRoute(V);
+    };
+    const render = (list) => {
+      items = list || [];
+      if (list === null) {
+        sugg.innerHTML = '<div class="empty">검색하려면 <b>python serve.py</b> 로 실행하세요.</div>';
+      } else if (!list.length) {
+        sugg.innerHTML = '<div class="empty">검색 결과 없음</div>';
+      } else {
+        sugg.innerHTML = list.map((it, i) =>
+          '<div class="it" data-i="' + i + '"><div class="t">' + esc(it.title) +
+          '</div><div class="a">' + esc(it.addr) + '</div></div>').join("");
+        [...sugg.querySelectorAll(".it")].forEach((el) =>
+          el.addEventListener("mousedown", (ev) => { ev.preventDefault(); choose(list[+el.dataset.i]); }));
+      }
+      sugg.classList.add("open");
+    };
+    input.addEventListener("input", () => {
+      const q = input.value.trim(); clearTimeout(timer);
+      if (q.length < 2) { close(); return; }
+      timer = setTimeout(async () => render(await poiSearch(q)), 250);
+    });
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && items.length) { e.preventDefault(); choose(items[0]); }
+      else if (e.key === "Escape") close();
+    });
+    input.addEventListener("blur", () => setTimeout(close, 150));
+  }
+  function bindUI(V) {
+    attachSearch(V, document.getElementById("startAddr"), document.getElementById("startSugg"), "start");
+    attachSearch(V, document.getElementById("goalAddr"), document.getElementById("goalSugg"), "goal");
+    document.getElementById("gpsBtn").addEventListener("click", () => {
+      if (!navigator.geolocation) { setStatus("이 브라우저는 GPS 미지원."); return; }
+      setStatus("현재 위치 확인 중…");
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          let lon = pos.coords.longitude, lat = pos.coords.latitude;
+          if (!inArea(lon, lat)) setStatus("⚠ 현재 위치가 덕풍동 밖 — 영역 경계로 스냅합니다.");
+          const p = clampArea(lon, lat); setStart(V, p[0], p[1]); computeRoute(V);
+        },
+        () => setStatus("위치 권한이 거부되었습니다."), { enableHighAccuracy: true, timeout: 8000 });
+    });
+    document.getElementById("findBtn").addEventListener("click", () => computeRoute(V));
+    document.getElementById("simBtn").addEventListener("click", () => simulateAlong(V));
+    document.getElementById("simStopBtn").addEventListener("click", () => { stopSim(); setStatus("시뮬 정지."); });
+    document.getElementById("trackBtn").addEventListener("click", (e) => toggleTrack(V, e.target));
+    document.getElementById("resetBtn").addEventListener("click", () => {
+      stopSim();
+      ["start", "goal", "route", "me"].forEach((k) => { if (APP.ent[k]) { V.entities.remove(APP.ent[k]); APP.ent[k] = null; } });
+      APP.startLL = APP.goalLL = null; APP.lastRoute = null; APP.nextClick = "start"; setStatus("출발·도착을 지정하세요.");
+    });
+    document.getElementById("clickStartBtn").addEventListener("click", () => { APP.nextClick = "start"; setStatus("지도에서 출발지를 클릭하세요."); });
+    document.getElementById("clickGoalBtn").addEventListener("click", () => { APP.nextClick = "goal"; setStatus("지도에서 도착지를 클릭하세요."); });
+    document.getElementById("avoidDiff").addEventListener("change", () => computeRoute(V));
+    document.getElementById("layerRisk").addEventListener("change", () => renderBoxes(V, "risk"));
+    document.getElementById("layerDiff").addEventListener("change", () => renderBoxes(V, "diff"));
+
+    // 지도 클릭 → 출발/도착 지정
+    const handler = new Cesium.ScreenSpaceEventHandler(V.scene.canvas);
+    handler.setInputAction((click) => {
+      const ray = V.camera.getPickRay(click.position);
+      const pos = V.scene.globe.pick(ray, V.scene);
+      if (!pos) return;
+      const carto = Cesium.Cartographic.fromCartesian(pos);
+      const lon = Cesium.Math.toDegrees(carto.longitude), lat = Cesium.Math.toDegrees(carto.latitude);
+      if (APP.nextClick === "start") { setStart(V, lon, lat); APP.nextClick = "goal"; setStatus("도착지를 지정하세요."); }
+      else { setGoal(V, lon, lat); APP.nextClick = "start"; computeRoute(V); }
+    }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
+  }
+
+  function setStatus(html) { document.getElementById("status").innerHTML = html; }
+  function showErr(msg) {
+    const e = document.getElementById("err"); e.style.display = "block"; e.innerHTML = msg;
+    const s = document.getElementById("status"); if (s) s.textContent = "오류";
+    console.error(msg);
+  }
+})();
+</script>
+</body>
+</html>
