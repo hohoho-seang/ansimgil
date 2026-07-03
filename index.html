@@ -139,7 +139,7 @@
 
   function waitForVw(n) {
     if (window.vw && vw.Map) { initMap(); return; }
-    if (n > 100) { showErr("V-World 라이브러리 로드 실패(vw 미정의). 도메인(" + DOMAIN + ")·포트 확인."); return; }
+    if (n > 600) { showErr("V-World 라이브러리 로드 실패(vw 미정의). 도메인(" + DOMAIN + ") 등록 및 네트워크 확인."); return; }
     setTimeout(() => waitForVw(n + 1), 50);
   }
 
@@ -159,7 +159,7 @@
 
   function waitForViewer(n) {
     if (window.ws3d && ws3d.viewer && window.Cesium) { boot(); return; }
-    if (n > 150) { showErr("3D 뷰어 준비 시간 초과."); return; }
+    if (n > 600) { showErr("3D 뷰어 준비 시간 초과."); return; }
     setTimeout(() => waitForViewer(n + 1), 100);
   }
 
