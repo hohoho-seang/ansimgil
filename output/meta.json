@@ -1,22 +1,22 @@
 {
   "metrics": {
-    "train_r2": 0.8115517293686055,
-    "test_r2": 0.5254912747851979,
-    "test_mae": 1.0804611866982072,
+    "train_r2": 0.9932493657837511,
+    "test_r2": 0.9829379241472292,
+    "test_mae": 0.033044080125266,
     "feature_importance": {
-      "road_prox": 0.206,
-      "light_cnt": 0.216,
-      "cctv_cnt": 0.357,
-      "slope": 0.222
+      "road_prox": 0.982,
+      "light_cnt": 0.007,
+      "cctv_cnt": 0.006,
+      "slope": 0.005
     }
   },
   "route": {
-    "dist_m": 2220.0,
-    "weighted_cost": 3503.8,
+    "dist_m": 29473.4,
+    "weighted_cost": 93078.4,
     "graph": {
-      "nodes": 3513,
-      "edges": 3672,
-      "largest_comp": 2777
+      "nodes": 81183,
+      "edges": 84396,
+      "largest_comp": 61346
     }
   }
 }
