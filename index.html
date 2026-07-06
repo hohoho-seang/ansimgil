@@ -151,7 +151,7 @@
       const opt = {
         mapId: "vmap",
         initPosition: new vw.CameraPosition(
-          new vw.CoordZ(127.213, 37.540, 2600), new vw.Direction(0, -55, 0)),
+          new vw.CoordZ(127.210, 37.510, 20000), new vw.Direction(0, -85, 0)),
         logo: true, navigation: true,
       };
       const map = new vw.Map();
@@ -181,11 +181,14 @@
     }
 
     APP.area = grid.area; APP.rows = grid.grid.rows; APP.cols = grid.grid.cols;
-    buildMatrices(grid.cells);
+    buildMatrices(grid);
     if (roads.lines && roads.lines.length <= 800) drawRoads(V, roads); // 도로 많으면(시 전체) 오버레이 생략
     buildGraph(roads);
     APP.comp = largestComponent();
-    renderBoxes(V, "risk");
+    renderHeatmap(V, "risk");
+    hideBuildings(V);
+    setTimeout(() => hideBuildings(V), 2500);
+    setTimeout(() => hideBuildings(V), 6000);
     bindUI(V);
 
     // 초기 기본 경로(영역 대각선)
@@ -198,10 +201,9 @@
   }
 
   // ── 격자 값 조회 ────────────────────────────────────────────────
-  function buildMatrices(cells) {
-    APP.riskM = Array.from({ length: APP.rows }, () => new Float32Array(APP.cols));
-    APP.diffM = Array.from({ length: APP.rows }, () => new Float32Array(APP.cols));
-    cells.forEach((c) => { APP.riskM[c.row][c.col] = c.risk; APP.diffM[c.row][c.col] = c.diff; });
+  function buildMatrices(grid) {
+    APP.riskM = grid.risk;   // rows×cols 행렬(JSON)
+    APP.diffM = grid.diff;
   }
   function cellRC(lon, lat) {
     const a = APP.area;
@@ -316,40 +318,59 @@
   }
 
   // ── 렌더링 ─────────────────────────────────────────────────────
-  function riskColor(v) {
+  function riskRGB(v) {
     let r, g, b;
     if (v < 0.5) { const t = v / 0.5; r = 25 + 205 * t; g = 200 + 30 * t; b = 10; }
     else { const t = (v - 0.5) / 0.5; r = 230 - 10 * t; g = 230 - 210 * t; b = 10 + 10 * t; }
-    return Cesium.Color.fromBytes(Math.round(r), Math.round(g), Math.round(b), 115);
+    return [Math.round(r), Math.round(g), Math.round(b)];
   }
-  function diffColor(v) {
+  function diffRGB(v) {
     let r, g, b;
     if (v < 0.5) { const t = v / 0.5; r = 60 + 80 * t; g = 200 - 90 * t; b = 210; }
     else { const t = (v - 0.5) / 0.5; r = 140 + 90 * t; g = 110 - 60 * t; b = 210 - 90 * t; }
-    return Cesium.Color.fromBytes(Math.round(r), Math.round(g), Math.round(b), 115);
+    return [Math.round(r), Math.round(g), Math.round(b)];
   }
-  function renderBoxes(V, layer) {
-    APP.boxes.forEach((e) => V.entities.remove(e)); APP.boxes = [];
+  // 지면에 입히는 히트맵 이미지(엔티티 1개) — 촘촘해도 가볍고 부드럽게 표시
+  function renderHeatmap(V, layer) {
+    if (APP.heat) V.entities.remove(APP.heat);
     APP.layer = layer;
     const isRisk = layer === "risk";
     const M = isRisk ? APP.riskM : APP.diffM;
-    const thr = isRisk ? 0.30 : 0.40; // 시 전체 스케일: 상위 위험/난이도 위주로 표시
-    const a = APP.area;
-    const dlon = (a.lon_max - a.lon_min) / APP.cols, dlat = (a.lat_max - a.lat_min) / APP.rows;
-    for (let r = 0; r < APP.rows; r++) for (let c = 0; c < APP.cols; c++) {
-      const v = M[r][c]; if (v < thr) continue;
-      const lo0 = a.lon_min + c * dlon, la0 = a.lat_min + r * dlat;
-      APP.boxes.push(V.entities.add({
-        rectangle: {
-          coordinates: Cesium.Rectangle.fromDegrees(lo0, la0, lo0 + dlon, la0 + dlat),
-          material: isRisk ? riskColor(v) : diffColor(v),
-          height: 0, extrudedHeight: 4 + v * MAXH, outline: false,
-        },
-      }));
+    const thr = isRisk ? 0.08 : 0.12;
+    const rows = APP.rows, cols = APP.cols;
+    const cv = document.createElement("canvas"); cv.width = cols; cv.height = rows;
+    const ctx = cv.getContext("2d");
+    const img = ctx.createImageData(cols, rows);
+    const rgb = isRisk ? riskRGB : diffRGB;
+    for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
+      const v = M[r][c];
+      const idx = ((rows - 1 - r) * cols + c) * 4;   // 캔버스 위쪽 = 북(lat_max)
+      if (v < thr) { img.data[idx + 3] = 0; continue; }
+      const col = rgb(v);
+      img.data[idx] = col[0]; img.data[idx + 1] = col[1]; img.data[idx + 2] = col[2];
+      img.data[idx + 3] = 185;
     }
-    // 범례
+    ctx.putImageData(img, 0, 0);
+    const a = APP.area;
+    APP.heat = V.entities.add({
+      rectangle: {
+        coordinates: Cesium.Rectangle.fromDegrees(a.lon_min, a.lat_min, a.lon_max, a.lat_max),
+        material: new Cesium.ImageMaterialProperty({ image: cv, transparent: true }),
+        height: 2,
+      },
+    });
     document.getElementById("legendTitle").textContent = isRisk ? "위험도 (risk)" : "보행난이도 (difficulty)";
     document.getElementById("legendBar").className = "bar " + (isRisk ? "risk" : "diff");
+  }
+  // V-World 3D 건물 타일 숨김 (top-down 위험도 지도에 집중). 늦게 로드되므로 몇 번 재시도.
+  function hideBuildings(V) {
+    try {
+      const prims = V.scene.primitives;
+      for (let i = 0; i < prims.length; i++) {
+        const p = prims.get(i);
+        if (window.Cesium && Cesium.Cesium3DTileset && p instanceof Cesium.Cesium3DTileset) p.show = false;
+      }
+    } catch (e) { /* 무시 */ }
   }
   function drawRoads(V, roads) {
     (roads.lines || []).forEach((line) => {
@@ -438,7 +459,7 @@
     const h = spanLat * 111000 * 1.3;
     V.camera.flyTo({
       destination: Cesium.Cartesian3.fromDegrees((a.lon_min + a.lon_max) / 2, a.lat_min - spanLat * 0.15, h),
-      orientation: { heading: 0, pitch: Cesium.Math.toRadians(-55), roll: 0 }, duration: 2.0 });
+      orientation: { heading: 0, pitch: Cesium.Math.toRadians(-85), roll: 0 }, duration: 2.0 });
   }
 
   // ── 입력(주소·GPS·클릭) ────────────────────────────────────────
@@ -549,8 +570,8 @@
     document.getElementById("clickStartBtn").addEventListener("click", () => { APP.nextClick = "start"; setStatus("지도에서 출발지를 클릭하세요."); });
     document.getElementById("clickGoalBtn").addEventListener("click", () => { APP.nextClick = "goal"; setStatus("지도에서 도착지를 클릭하세요."); });
     document.getElementById("avoidDiff").addEventListener("change", () => computeRoute(V));
-    document.getElementById("layerRisk").addEventListener("change", () => renderBoxes(V, "risk"));
-    document.getElementById("layerDiff").addEventListener("change", () => renderBoxes(V, "diff"));
+    document.getElementById("layerRisk").addEventListener("change", () => renderHeatmap(V, "risk"));
+    document.getElementById("layerDiff").addEventListener("change", () => renderHeatmap(V, "diff"));
 
     // 지도 클릭 → 출발/도착 지정
     const handler = new Cesium.ScreenSpaceEventHandler(V.scene.canvas);
