@@ -136,8 +136,10 @@
     const a = APP.area;
     APP.map = L.map("map", { zoomControl: true, attributionControl: false })
       .setView([(a.lat_min + a.lat_max) / 2, (a.lon_min + a.lon_max) / 2], 13);
-    L.tileLayer("https://api.vworld.kr/req/wmts/1.0.0/" + KEY + "/Base/{z}/{y}/{x}.png",
-      { maxZoom: 19, minZoom: 10 }).addTo(APP.map);
+    const tileOpt = { maxZoom: 19, minZoom: 10 };
+    APP.satLayer = L.tileLayer("https://api.vworld.kr/req/wmts/1.0.0/" + KEY + "/Satellite/{z}/{y}/{x}.jpeg", tileOpt);
+    APP.streetLayer = L.tileLayer("https://api.vworld.kr/req/wmts/1.0.0/" + KEY + "/Base/{z}/{y}/{x}.png", tileOpt);
+    APP.satLayer.addTo(APP.map);   // 분석 모드: 위성 사진 (네비 시작 시 도로지도로 전환)
 
     buildMatrices(grid);
     populateLayerSelect();
@@ -406,6 +408,8 @@
     if (!APP.lastRoute || APP.lastRoute.length < 2) { setStatus("먼저 경로를 만들어 주세요."); return; }
     if (!navigator.geolocation) { setStatus("GPS 미지원."); return; }
     APP.navMode = true;
+    if (APP.satLayer) APP.map.removeLayer(APP.satLayer);         // 위성 → 도로지도(2D)
+    if (APP.streetLayer && !APP.map.hasLayer(APP.streetLayer)) APP.streetLayer.addTo(APP.map);
     if (APP.heatLayer) APP.heatLayer.setOpacity(0);              // 히트맵 숨김 → 도로+경로
     if (APP.routeLayer) APP.routeLayer.setStyle({ weight: 8 });
     document.getElementById("navbar").classList.add("on");
@@ -416,6 +420,8 @@
   function stopNav() {
     APP.navMode = false;
     if (APP.navWatch != null) { navigator.geolocation.clearWatch(APP.navWatch); APP.navWatch = null; }
+    if (APP.streetLayer) APP.map.removeLayer(APP.streetLayer);   // 도로지도 → 위성
+    if (APP.satLayer && !APP.map.hasLayer(APP.satLayer)) APP.satLayer.addTo(APP.map);
     if (APP.heatLayer) APP.heatLayer.setOpacity(0.6);
     if (APP.routeLayer) APP.routeLayer.setStyle({ weight: 6 });
     document.getElementById("navbar").classList.remove("on");
