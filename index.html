@@ -682,6 +682,8 @@
     if (!APP.lastRoute || APP.lastRoute.length < 2) { setStatus("먼저 경로를 만들어 주세요."); return; }
     if (!navigator.geolocation) { setStatus("이 기기는 GPS 미지원."); return; }
     APP.navMode = true;
+    if (APP.heat) { V.entities.remove(APP.heat); APP.heat = null; }   // 히트맵 숨김 → 실제 지도+경로만
+    if (APP.ent.route) APP.ent.route.polyline.width = 12;             // 경로 굵게
     document.getElementById("navbar").classList.add("on");
     document.getElementById("ctrl").classList.add("collapsed");
     requestHeading();
@@ -694,6 +696,8 @@
     if (APP.navWatch != null) { navigator.geolocation.clearWatch(APP.navWatch); APP.navWatch = null; }
     document.getElementById("navbar").classList.remove("on");
     document.getElementById("ctrl").classList.remove("collapsed");
+    renderHeatmap(V, APP.layerSel || "risk");     // 히트맵 복원
+    if (APP.ent.route) APP.ent.route.polyline.width = 9;
     flyToArea(V);
   }
 
