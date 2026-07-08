@@ -203,6 +203,8 @@
     buildGraph(roads);
     APP.comp = largestComponent();
     renderHeatmap(V, "risk");
+    renderAccidents(V);
+    showValidation();
     hideBuildings(V);
     setTimeout(() => hideBuildings(V), 2500);
     setTimeout(() => hideBuildings(V), 6000);
@@ -228,6 +230,14 @@
       APP.weights[k] = grid.factors[k].weight;
       APP.flabels[k] = grid.factors[k].label;
     }
+    APP.slopeDeg = grid.slope_deg || null;
+    APP.aspect = grid.aspect || null;
+    APP.accidents = grid.accidents || [];
+    APP.validation = grid.validation || null;
+  }
+  function compass8(d) {
+    if (d < 0) return "평지";
+    return ["북 ↑", "북동 ↗", "동 →", "남동 ↘", "남 ↓", "남서 ↙", "서 ←", "북서 ↖"][Math.round(d / 45) % 8];
   }
   function cellRC(lon, lat) {
     const a = APP.area;
@@ -418,7 +428,30 @@
       html += i.label + " <span class='bar2' style='width:" + Math.max(2, pct) +
         "px;background:#ff7a4d'></span> <b>" + pct + "%</b><br>";
     });
+    if (APP.slopeDeg) {
+      html += "<span style='opacity:.7'>경사:</span> <b>" + APP.slopeDeg[r][c].toFixed(1) +
+        "°</b> · 방향 <b>" + compass8(APP.aspect[r][c]) + "</b><br>";
+    }
     el.innerHTML = html;
+  }
+  // 실제 사고지점(빨간 점) — 위험지도 검증(ground-truthing) 시각화
+  function renderAccidents(V) {
+    (APP.accidents || []).forEach((a) => {
+      V.entities.add({
+        position: Cesium.Cartesian3.fromDegrees(a[0], a[1], ROUTE_H),
+        point: { pixelSize: 8, color: Cesium.Color.fromBytes(255, 40, 40, 235),
+          outlineColor: Cesium.Color.WHITE, outlineWidth: 1 },
+      });
+    });
+  }
+  function showValidation() {
+    const v = APP.validation;
+    if (!v || !v["위험도_배수"]) return;
+    document.getElementById("analysis").innerHTML =
+      "🎯 <b>검증(실제 사고 " + (v["사고표본수"] || 0) + "건)</b><br>사고지점이 평균 <b style='color:#ff8a6a'>" +
+      v["위험도_배수"] + "배</b> 위험구간 · <b>" + v["사고_상위25위험구간_포함율%"] +
+      "%</b>가 상위25%<br><span style='opacity:.65'>비순환 환경위험 " + v["비순환_환경위험_배수"] +
+      "배 · 빨간점=실제 사고지점</span>";
   }
   // V-World 3D 건물 타일 숨김 (top-down 위험도 지도에 집중). 늦게 로드되므로 몇 번 재시도.
   function hideBuildings(V) {
