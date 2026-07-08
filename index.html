@@ -218,6 +218,13 @@
   async function boot() {
     const V = ws3d.viewer;
     V.scene.globe.depthTestAgainstTerrain = false;
+    // V-World 도로 지도 타일을 명시적으로 깔아 실제 도로·라벨이 항상 보이게(기본 위성이 안 뜨는 문제 대응)
+    try {
+      V.imageryLayers.addImageryProvider(new Cesium.UrlTemplateImageryProvider({
+        url: "https://api.vworld.kr/req/wmts/1.0.0/" + KEY + "/Base/{z}/{y}/{x}.png",
+        maximumLevel: 19,
+      }));
+    } catch (e) { /* 실패해도 무시 */ }
     const bust = "?t=" + Date.now();
     let grid, roads;
     try {
