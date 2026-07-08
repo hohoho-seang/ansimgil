@@ -2,311 +2,190 @@
 <html lang="ko">
 <head>
 <meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-<!-- V-World 3D 라이브러리가 http로 로드되는 것을 https로 자동 승격 (HTTPS 배포 시 mixed-content 차단 방지) -->
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
 <meta http-equiv="Content-Security-Policy" content="upgrade-insecure-requests" />
 <link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2024%2024'%3E%3Cpath%20fill='%232d7ef7'%20d='M12%202l8%203v6c0%205-3.5%208.5-8%2011-4.5-2.5-8-6-8-11V5z'/%3E%3C/svg%3E" />
-<title>안심길 — 안전 경로 3D</title>
-
+<title>안심길 — 안전 경로</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 <script src="config.js"></script>
-<script>
-  // V-World 3D 로더(webglMapInit)는 내부적으로 document.write 로 라이브러리를 주입하므로
-  // 문서 파싱 단계에서 로드해야 vw 가 정의된다.
-  (function () {
-    var key = window.VWORLD_API_KEY || "";
-    var dom = window.VWORLD_DOMAIN || window.location.hostname || "localhost";
-    if (key) {
-      document.write(
-        '<scr' + 'ipt type="text/javascript" src="https://map.vworld.kr/js/webglMapInit.js.do' +
-        '?version=3.0&apiKey=' + encodeURIComponent(key) + '&domain=' + encodeURIComponent(dom) +
-        '"><\/scr' + 'ipt>');
-    }
-  })();
-</script>
-
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <style>
-  html, body { margin: 0; height: 100%; font-family: 'Malgun Gothic', sans-serif; background:#0b0e13; }
-  #vmap { width: 100%; height: 100%; }
-  .panel { position: absolute; z-index: 10; background: rgba(20,24,33,.86); color:#fff;
-           border-radius: 10px; padding: 12px 14px; font-size: 13px; line-height: 1.5;
-           box-shadow: 0 4px 16px rgba(0,0,0,.4); }
-  #title { top: 12px; left: 12px; font-size: 15px; font-weight: 700; }
+  html, body { margin:0; height:100%; font-family:'Malgun Gothic',sans-serif; background:#0b0e13; }
+  #map { position:absolute; inset:0; z-index:0; }
+  .panel { position:absolute; z-index:600; background:rgba(20,24,33,.9); color:#fff;
+           border-radius:10px; padding:12px 14px; font-size:13px; line-height:1.5;
+           box-shadow:0 4px 16px rgba(0,0,0,.4); }
+  #title { top:12px; left:12px; font-size:15px; font-weight:700; }
   #title small { display:block; font-weight:400; opacity:.8; font-size:11px; margin-top:2px; }
-
-  #ctrl { top: 70px; left: 12px; width: 260px; }
-  #ctrl h4 { margin: 0 0 8px; font-size: 12px; opacity:.85; font-weight:600; }
+  #ctrl { top:70px; left:12px; width:270px; }
+  #ctrl h4 { margin:0 0 8px; font-size:13px; opacity:.9; }
   #ctrl .row { display:flex; gap:6px; margin-bottom:6px; align-items:center; }
-  #ctrl input[type=text] { flex:1; min-width:0; padding:6px 8px; border-radius:6px; border:1px solid #3a4152;
-           background:#11151d; color:#fff; font-size:12px; }
+  #ctrl .ac { position:relative; flex:1; min-width:0; }
+  #ctrl input[type=text] { width:100%; box-sizing:border-box; padding:6px 8px; border-radius:6px;
+           border:1px solid #3a4152; background:#11151d; color:#fff; font-size:12px; }
   #ctrl button { padding:6px 9px; border:0; border-radius:6px; background:#2b3446; color:#fff;
            font-size:12px; cursor:pointer; white-space:nowrap; }
-  #ctrl button:hover { background:#38445c; }
   #ctrl button.primary { background:#2d7ef7; }
-  #ctrl button.primary:hover { background:#3b8bff; }
+  #ctrl select { width:100%; margin-top:4px; padding:5px 7px; border-radius:6px; background:#11151d;
+           color:#fff; border:1px solid #3a4152; font-size:12px; }
   #ctrl .hint { font-size:11px; opacity:.6; margin:2px 0 8px; }
   #ctrl .sep { border-top:1px solid #2a3140; margin:8px 0; }
   #ctrl label.ck { display:flex; align-items:center; gap:6px; font-size:12px; cursor:pointer; }
-  #ctrl .layer { display:flex; gap:12px; font-size:12px; margin-top:6px; }
+  #ctrl .layer { font-size:12px; margin-top:6px; }
   #status { margin-top:8px; font-size:12px; min-height:16px; }
   #status b { color:#5fd08a; }
-  #ctrl select { width:100%; margin-top:4px; padding:5px 7px; border-radius:6px;
-     background:#11151d; color:#fff; border:1px solid #3a4152; font-size:12px; }
   #analysis { margin-top:6px; font-size:12px; line-height:1.55; }
   #analysis .bar2 { display:inline-block; height:8px; border-radius:4px; vertical-align:middle; margin:0 5px; }
-  #legend .bar.conf { background: linear-gradient(90deg,#e0a63c,#4aa3ff,#1560d0); }
-
-  #ctrl .ac { position:relative; flex:1; min-width:0; }
-  #ctrl .ac input { width:100%; box-sizing:border-box; }
-  .sugg { position:absolute; top:calc(100% + 2px); left:0; right:0; z-index:30;
-          background:#11151d; border:1px solid #3a4152; border-radius:6px;
-          max-height:240px; overflow-y:auto; display:none; }
+  .sugg { position:absolute; top:calc(100% + 2px); left:0; right:0; z-index:30; background:#11151d;
+          border:1px solid #3a4152; border-radius:6px; max-height:240px; overflow-y:auto; display:none; }
   .sugg.open { display:block; }
   .sugg .it { padding:7px 9px; cursor:pointer; border-bottom:1px solid #222a37; }
-  .sugg .it:hover { background:#243049; }
   .sugg .it .t { font-size:12px; color:#fff; }
   .sugg .it .a { font-size:10.5px; color:#9aa4b5; margin-top:1px; }
   .sugg .empty { padding:8px 9px; font-size:11px; color:#9aa4b5; }
-
-  #legend { bottom: 18px; left: 12px; }
+  #legend { bottom:18px; left:12px; }
   #legend .bar { height:10px; width:180px; border-radius:5px; margin:7px 0 3px; }
-  #legend .bar.risk { background: linear-gradient(90deg,#19c80a,#e6e60a,#dc1414); }
-  #legend .bar.diff { background: linear-gradient(90deg,#3cc8d2,#8c6ed2,#e6327a); }
+  #legend .bar.risk { background:linear-gradient(90deg,#19c80a,#e6e60a,#dc1414); }
+  #legend .bar.diff { background:linear-gradient(90deg,#3cc8d2,#8c6ed2,#e6327a); }
+  #legend .bar.conf { background:linear-gradient(90deg,#e0a63c,#4aa3ff,#1560d0); }
   #legend .row { display:flex; justify-content:space-between; width:180px; font-size:11px; opacity:.85; }
-  #err { top:50%; left:50%; transform:translate(-50%,-50%); background:rgba(150,24,24,.94);
-         display:none; max-width:380px; }
-
-  /* 내비게이션 바(하단) */
-  #navbar { position:absolute; left:12px; right:12px; bottom:14px; z-index:25; display:none;
-    align-items:center; justify-content:space-between; gap:12px;
-    background:rgba(20,24,33,.94); color:#fff; border-radius:14px; padding:12px 16px;
-    box-shadow:0 6px 22px rgba(0,0,0,.55); }
+  #err { top:50%; left:50%; transform:translate(-50%,-50%); background:rgba(150,24,24,.94); display:none; max-width:360px; }
+  #navbar { position:absolute; left:12px; right:12px; bottom:14px; z-index:700; display:none;
+    align-items:center; justify-content:space-between; gap:12px; background:rgba(20,24,33,.94);
+    color:#fff; border-radius:14px; padding:12px 16px; box-shadow:0 6px 22px rgba(0,0,0,.55); }
   #navbar.on { display:flex; }
   #navbar .dist { font-size:22px; font-weight:800; }
   #navbar .dist small { font-size:12px; font-weight:400; opacity:.75; margin-left:4px; }
-  #navbar button { padding:11px 18px; border:0; border-radius:9px; background:#e2483a;
-    color:#fff; font-size:15px; font-weight:600; cursor:pointer; }
+  #navbar button { padding:11px 18px; border:0; border-radius:9px; background:#e2483a; color:#fff;
+    font-size:15px; font-weight:600; }
   #navStartBtn { background:#12b886 !important; }
-
-  /* 모바일/태블릿: 컨트롤 축소, 터치 크게, 범례 숨김 */
-  @media (max-width: 860px) {
-    #ctrl { width: calc(100vw - 24px); max-height: 46vh; overflow-y:auto; }
-    #ctrl.collapsed { max-height: 52px; overflow:hidden; }
+  .memark { font-size:24px; line-height:24px; color:#00d4ff; text-shadow:0 0 4px #000,0 0 2px #000; }
+  @media (max-width:860px){
+    #ctrl { width:calc(100vw - 24px); max-height:44vh; overflow-y:auto; }
+    #ctrl.collapsed { max-height:50px; overflow:hidden; }
     #ctrl h4 { cursor:pointer; }
-    #ctrl button, #ctrl input, #ctrl select { min-height: 36px; font-size:13px; }
-    #legend { display:none; }
-    #title small { display:none; }
-    #title { font-size:14px; }
+    #ctrl button, #ctrl input, #ctrl select { min-height:36px; font-size:13px; }
+    #legend { display:none; } #title small { display:none; } #title { font-size:14px; }
   }
 </style>
 </head>
 <body>
-  <div id="vmap"></div>
+  <div id="map"></div>
   <div id="title" class="panel">🛡️ 안심길 (Safe Path)
-    <small>V-World 실도로망 기반 보행 안전경로 · 하남시 덕풍동</small></div>
+    <small>보행 안전경로 · 하남시</small></div>
 
   <div id="ctrl" class="panel">
     <h4>🧭 길찾기</h4>
     <div class="row">
-      <div class="ac">
-        <input type="text" id="startAddr" placeholder="출발지 검색 (예: 남한고등학교)" autocomplete="off" />
-        <div class="sugg" id="startSugg"></div>
-      </div>
+      <div class="ac"><input type="text" id="startAddr" placeholder="출발지 검색 (예: 남한고등학교)" autocomplete="off" />
+        <div class="sugg" id="startSugg"></div></div>
       <button id="gpsBtn" title="내 위치(GPS)">📍</button>
     </div>
     <div class="row">
-      <div class="ac">
-        <input type="text" id="goalAddr" placeholder="도착지 검색 (예: 하남시청)" autocomplete="off" />
-        <div class="sugg" id="goalSugg"></div>
-      </div>
+      <div class="ac"><input type="text" id="goalAddr" placeholder="도착지 검색 (예: 하남시청)" autocomplete="off" />
+        <div class="sugg" id="goalSugg"></div></div>
     </div>
     <div class="row">
       <button id="findBtn" class="primary">경로 찾기</button>
-      <button id="clickStartBtn">지도서 출발</button>
-      <button id="clickGoalBtn">지도서 도착</button>
       <button id="resetBtn">초기화</button>
     </div>
-    <div class="hint">장소명을 입력해 추천 목록에서 선택하세요. 지도 클릭도 가능(출발→도착).</div>
-    <div class="row">
-      <button id="navStartBtn" class="primary">🧭 내비게이션 시작</button>
-    </div>
-    <div class="row">
-      <button id="simBtn" class="primary">▶ 경로 따라가기</button>
-      <button id="trackBtn">실시간 위치</button>
-      <button id="simStopBtn">⏹ 정지</button>
-    </div>
+    <div class="hint">장소 검색 또는 지도 클릭(출발→도착)으로 지정.</div>
+    <div class="row"><button id="navStartBtn" class="primary">🧭 내비게이션 시작</button></div>
     <div class="sep"></div>
     <label class="ck"><input type="checkbox" id="avoidDiff" /> 보행난이도 회피 경로</label>
-    <div class="layer">레이어:
-      <select id="layerSel">
-        <option value="risk">통합 위험도</option>
-        <optgroup label="개별 요소">
-          <option value="f:accident">교통사고 다발</option>
-          <option value="f:traffic">교통 노출(도로)</option>
-          <option value="f:light">야간 조도(가로등)</option>
-          <option value="f:cctv">CCTV 부재</option>
-          <option value="f:slope">급경사</option>
-        </optgroup>
-        <option value="diff">보행 난이도</option>
-        <option value="conf">현실 반영 신뢰도</option>
-      </select>
-    </div>
+    <div class="layer">레이어: <select id="layerSel"></select></div>
     <label class="ck"><input type="checkbox" id="analyzeMode" /> 🔍 지점 분석(클릭 시 요소 기여도)</label>
     <div id="analysis"></div>
     <div id="status">불러오는 중…</div>
   </div>
 
-  <div id="navbar">
-    <div class="dist" id="navdist">–</div>
-    <button id="navEndBtn">✕ 종료</button>
-  </div>
+  <div id="navbar"><div class="dist" id="navdist">–</div><button id="navEndBtn">✕ 종료</button></div>
 
   <div id="legend" class="panel">
-    <span id="legendTitle">위험도 (risk)</span>
+    <span id="legendTitle">위험도</span>
     <div class="bar risk" id="legendBar"></div>
-    <div class="row"><span>낮음 0</span><span>높음 1</span></div>
-    <div style="margin-top:8px;">━━ <span style="color:#37b6ff">추천 경로</span>
-      &nbsp; ── <span style="color:#dddddd">도로망</span></div>
+    <div class="row"><span>낮음</span><span>높음</span></div>
+    <div style="margin-top:8px;">━ <span style="color:#37b6ff">추천 경로</span> · <span style="color:#ff3838">● 사고지점</span></div>
   </div>
   <div id="err" class="panel"></div>
 
 <script>
 (function () {
-  const DOMAIN = window.VWORLD_DOMAIN || window.location.hostname || "localhost";
   const KEY = window.VWORLD_API_KEY || "";
-  const RISK_W = 2.5, DIFF_W = 3.0;         // 경로비용 가중치(안전 vs 효율 균형)
-  const MAXH = 45, ROAD_H = MAXH + 8, ROUTE_H = MAXH + 18;
-  const R = 6371000;
+  const RISK_W = 2.5, DIFF_W = 3.0, R = 6371000;
+  const APP = { map:null, area:null, rows:0, cols:0, riskM:null, diffM:null, confM:null,
+    factors:{}, weights:{}, flabels:{}, slopeDeg:null, aspect:null, alleyW:null, widthNarrow:null,
+    accidents:[], validation:null, nodes:new Map(), adj:new Map(), comp:new Set(),
+    startLL:null, goalLL:null, nextClick:"start", lastRoute:null, layerSel:"risk",
+    heatLayer:null, routeLayer:null, mStart:null, mGoal:null, mMe:null, accLayer:null,
+    navMode:false, navWatch:null, compassHeading:null, lastHeading:0 };
 
-  const APP = {
-    area: null, rows: 0, cols: 0, riskM: null, diffM: null,
-    nodes: new Map(), adj: new Map(), comp: new Set(),
-    startLL: null, goalLL: null, nextClick: "start", lastRoute: null,
-    ent: { start: null, goal: null, route: null, me: null },
-    boxes: [], layer: "risk", simTimer: null, watchId: null,
-  };
+  if (!KEY) { showErr("V-World 인증키가 없습니다. web/config.js 확인."); return; }
+  if (!window.L) { showErr("지도 라이브러리(Leaflet) 로드 실패. 네트워크 확인."); return; }
+  init();
 
-  if (!KEY) { showErr("V-World 인증키가 없습니다. web/config.js 를 확인하세요."); return; }
-  waitForVw(0);
-
-  function waitForVw(n) {
-    if (window.vw && vw.Map) { initMap(); return; }
-    if (n > 600) { showErr("V-World 라이브러리 로드 실패(vw 미정의). 도메인(" + DOMAIN + ") 등록 및 네트워크 확인."); return; }
-    setTimeout(() => waitForVw(n + 1), 50);
-  }
-
-  function initMap() {
-    try {
-      const opt = {
-        mapId: "vmap",
-        initPosition: new vw.CameraPosition(
-          new vw.CoordZ(127.210, 37.510, 20000), new vw.Direction(0, -85, 0)),
-        logo: true, navigation: true,
-      };
-      const map = new vw.Map();
-      map.setOption(opt); map.setMapId("vmap"); map.start();
-      waitForViewer(0);
-    } catch (e) { showErr("지도 초기화 오류: " + e.message); }
-  }
-
-  function waitForViewer(n) {
-    if (window.ws3d && ws3d.viewer && window.Cesium) { boot(); return; }
-    if (n > 600) { showErr("3D 뷰어 준비 시간 초과."); return; }
-    setTimeout(() => waitForViewer(n + 1), 100);
-  }
-
-  // ── 데이터 로드 & 초기화 ─────────────────────────────────────────
-  async function boot() {
-    const V = ws3d.viewer;
-    V.scene.globe.depthTestAgainstTerrain = false;
-    // V-World 도로 지도 타일을 명시적으로 깔아 실제 도로·라벨이 항상 보이게(기본 위성이 안 뜨는 문제 대응)
-    try {
-      V.imageryLayers.addImageryProvider(new Cesium.UrlTemplateImageryProvider({
-        url: "https://api.vworld.kr/req/wmts/1.0.0/" + KEY + "/Base/{z}/{y}/{x}.png",
-        maximumLevel: 19,
-      }));
-    } catch (e) { /* 실패해도 무시 */ }
+  async function init() {
     const bust = "?t=" + Date.now();
     let grid, roads;
     try {
       grid = await (await fetch("output/risk_grid.json" + bust)).json();
       roads = await (await fetch("output/roads_web.json" + bust)).json();
-    } catch (e) {
-      showErr("output JSON 로드 실패. <b>python main.py</b> 후 <b>python -m http.server 8000</b> 로 여세요.");
-      return;
-    }
+    } catch (e) { showErr("데이터 로드 실패. python serve.py 또는 배포 확인."); return; }
 
     APP.area = grid.area; APP.rows = grid.grid.rows; APP.cols = grid.grid.cols;
+    const a = APP.area;
+    APP.map = L.map("map", { zoomControl: true, attributionControl: false })
+      .setView([(a.lat_min + a.lat_max) / 2, (a.lon_min + a.lon_max) / 2], 13);
+    L.tileLayer("https://api.vworld.kr/req/wmts/1.0.0/" + KEY + "/Base/{z}/{y}/{x}.png",
+      { maxZoom: 19, minZoom: 10 }).addTo(APP.map);
+
     buildMatrices(grid);
     populateLayerSelect();
-    if (roads.lines && roads.lines.length <= 800) drawRoads(V, roads); // 도로 많으면(시 전체) 오버레이 생략
-    buildGraph(roads);
-    bridgeGaps(15);          // 끊긴 끝점 연결(횡단 지점 등)
-    APP.comp = largestComponent();
-    renderHeatmap(V, "risk");
-    renderAccidents(V);
+    buildGraph(roads); bridgeGaps(15); APP.comp = largestComponent();
+    renderHeatmap("risk");
+    renderAccidents();
     showValidation();
-    hideBuildings(V);
-    setTimeout(() => hideBuildings(V), 2500);
-    setTimeout(() => hideBuildings(V), 6000);
-    bindUI(V);
+    bindUI();
 
-    // 초기 기본 경로(영역 대각선)
-    const a = APP.area, sp = 0.15;
-    setStart(V, a.lon_min + sp * (a.lon_max - a.lon_min), a.lat_min + sp * (a.lat_max - a.lat_min));
-    setGoal(V, a.lon_max - sp * (a.lon_max - a.lon_min), a.lat_max - sp * (a.lat_max - a.lat_min));
-    APP.nextClick = "start";
-    computeRoute(V);
-    flyToArea(V);
+    const sp = 0.35;
+    setStart(a.lat_min + sp * (a.lat_max - a.lat_min), a.lon_min + sp * (a.lon_max - a.lon_min));
+    setGoal(a.lat_min + (1 - sp) * (a.lat_max - a.lat_min), a.lon_min + (1 - sp) * (a.lon_max - a.lon_min));
+    APP.nextClick = "start"; computeRoute();
   }
 
-  // ── 격자 값 조회 ────────────────────────────────────────────────
-  function buildMatrices(grid) {
-    APP.riskM = grid.risk;   // rows×cols 행렬(JSON)
-    APP.diffM = grid.diff;
-    APP.confM = grid.conf;
+  // ── 격자 값 ──
+  function buildMatrices(g) {
+    APP.riskM = g.risk; APP.diffM = g.diff; APP.confM = g.conf;
     APP.factors = {}; APP.weights = {}; APP.flabels = {};
-    for (const k in (grid.factors || {})) {
-      APP.factors[k] = grid.factors[k].layer;
-      APP.weights[k] = grid.factors[k].weight;
-      APP.flabels[k] = grid.factors[k].label;
-    }
-    APP.slopeDeg = grid.slope_deg || null;
-    APP.aspect = grid.aspect || null;
-    APP.accidents = grid.accidents || [];
-    APP.validation = grid.validation || null;
-    APP.alleyW = grid.alley_width_m || null;                 // 골목 폭(m), -1=데이터없음
-    APP.widthNarrow = APP.alleyW
-      ? APP.alleyW.map((row) => row.map((w) => (w >= 0 ? Math.max(0, Math.min(1, (15 - w) / 13)) : 0)))
-      : null;                                                // 좁을수록 1(빨강)
-  }
-  function compass8(d) {
-    if (d < 0) return "평지";
-    return ["북 ↑", "북동 ↗", "동 →", "남동 ↘", "남 ↓", "남서 ↙", "서 ←", "북서 ↖"][Math.round(d / 45) % 8];
-  }
-  function populateLayerSelect() {   // 요소 목록에서 드롭다운 자동 생성
-    let html = '<option value="risk">통합 위험도</option><optgroup label="개별 요소">';
-    for (const k in APP.factors) html += '<option value="f:' + k + '">' + (APP.flabels[k] || k) + '</option>';
-    html += '</optgroup><option value="diff">보행 난이도</option><option value="conf">현실 반영 신뢰도</option>';
-    if (APP.alleyW) html += '<option value="width">골목 폭(원도심)</option>';
-    document.getElementById("layerSel").innerHTML = html;
+    for (const k in (g.factors || {})) { APP.factors[k] = g.factors[k].layer; APP.weights[k] = g.factors[k].weight; APP.flabels[k] = g.factors[k].label; }
+    APP.slopeDeg = g.slope_deg || null; APP.aspect = g.aspect || null;
+    APP.accidents = g.accidents || []; APP.validation = g.validation || null;
+    APP.alleyW = g.alley_width_m || null;
+    APP.widthNarrow = APP.alleyW ? APP.alleyW.map((row) => row.map((w) => (w >= 0 ? Math.max(0, Math.min(1, (15 - w) / 13)) : 0))) : null;
   }
   function cellRC(lon, lat) {
     const a = APP.area;
     let c = Math.floor((lon - a.lon_min) / (a.lon_max - a.lon_min) * APP.cols);
     let r = Math.floor((lat - a.lat_min) / (a.lat_max - a.lat_min) * APP.rows);
-    r = Math.min(Math.max(r, 0), APP.rows - 1); c = Math.min(Math.max(c, 0), APP.cols - 1);
-    return [r, c];
+    return [Math.min(Math.max(r, 0), APP.rows - 1), Math.min(Math.max(c, 0), APP.cols - 1)];
   }
   function valAt(M, lon, lat) { const rc = cellRC(lon, lat); return M[rc[0]][rc[1]]; }
   function meters(lo1, la1, lo2, la2) {
     const ml = (la1 + la2) / 2 * Math.PI / 180;
-    const x = (lo2 - lo1) * Math.PI / 180 * Math.cos(ml) * R;
-    const y = (la2 - la1) * Math.PI / 180 * R;
-    return Math.hypot(x, y);
+    return Math.hypot((lo2 - lo1) * Math.PI / 180 * Math.cos(ml) * R, (la2 - la1) * Math.PI / 180 * R);
+  }
+  function compass8(d) { return d < 0 ? "평지" : ["북 ↑","북동 ↗","동 →","남동 ↘","남 ↓","남서 ↙","서 ←","북서 ↖"][Math.round(d / 45) % 8]; }
+  function fmtDist(m) { return m >= 1000 ? (m / 1000).toFixed(2) + "km" : Math.round(m) + "m"; }
+  function populateLayerSelect() {
+    let h = '<option value="risk">통합 위험도</option><optgroup label="개별 요소">';
+    for (const k in APP.factors) h += '<option value="f:' + k + '">' + (APP.flabels[k] || k) + '</option>';
+    h += '</optgroup><option value="diff">보행 난이도</option><option value="conf">현실 반영 신뢰도</option>';
+    if (APP.alleyW) h += '<option value="width">골목 폭(원도심)</option>';
+    document.getElementById("layerSel").innerHTML = h;
   }
 
-  // ── 도로망 그래프 ───────────────────────────────────────────────
-  function nkey(lon, lat) { return lon.toFixed(5) + "," + lat.toFixed(5); }
+  // ── 도로망 그래프 (지도 무관) ──
+  function nkey(lo, la) { return lo.toFixed(5) + "," + la.toFixed(5); }
   function buildGraph(roads) {
     (roads.lines || []).forEach((line) => {
       for (let i = 0; i < line.length - 1; i++) {
@@ -323,27 +202,17 @@
       }
     });
   }
-  // 끊긴 끝점(막다른 노드)을 근처 노드에 연결 → OSM 갭/좁은길 횡단 지점을 이어줌(둘러가기 완화)
   function bridgeGaps(maxM) {
-    const cell = 0.00018;                 // ≈15m (경도)
-    const buckets = new Map();
+    const cell = 0.00018, buckets = new Map();
     const bk = (lo, la) => Math.floor(lo / cell) + "," + Math.floor(la / cell);
-    for (const [k, ll] of APP.nodes) {
-      const b = bk(ll[0], ll[1]); if (!buckets.has(b)) buckets.set(b, []); buckets.get(b).push(k);
-    }
-    let added = 0;
+    for (const [k, ll] of APP.nodes) { const b = bk(ll[0], ll[1]); if (!buckets.has(b)) buckets.set(b, []); buckets.get(b).push(k); }
     for (const [k, edges] of APP.adj) {
-      if (edges.length !== 1) continue;   // 막다른 끝점만
-      const [lo, la] = APP.nodes.get(k);
-      const bx = Math.floor(lo / cell), by = Math.floor(la / cell);
+      if (edges.length !== 1) continue;
+      const [lo, la] = APP.nodes.get(k); const bx = Math.floor(lo / cell), by = Math.floor(la / cell);
       let best = null, bd = maxM;
       for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) {
         const arr = buckets.get((bx + dx) + "," + (by + dy)); if (!arr) continue;
-        for (const k2 of arr) {
-          if (k2 === k) continue;
-          const [l2, a2] = APP.nodes.get(k2); const d = meters(lo, la, l2, a2);
-          if (d < bd) { bd = d; best = k2; }
-        }
+        for (const k2 of arr) { if (k2 === k) continue; const [l2, a2] = APP.nodes.get(k2); const d = meters(lo, la, l2, a2); if (d < bd) { bd = d; best = k2; } }
       }
       if (best) {
         const [l2, a2] = APP.nodes.get(best);
@@ -351,52 +220,32 @@
         const diff = 0.5 * (valAt(APP.diffM, lo, la) + valAt(APP.diffM, l2, a2));
         APP.adj.get(k).push({ to: best, dist: bd, risk, diff });
         APP.adj.get(best).push({ to: k, dist: bd, risk, diff });
-        added++;
       }
     }
-    return added;
   }
   function largestComponent() {
     const seen = new Set(); let best = new Set();
     for (const src of APP.adj.keys()) {
       if (seen.has(src)) continue;
       const comp = new Set(), stack = [src];
-      while (stack.length) {
-        const n = stack.pop(); if (comp.has(n)) continue; comp.add(n);
-        for (const e of APP.adj.get(n)) if (!comp.has(e.to)) stack.push(e.to);
-      }
-      for (const n of comp) seen.add(n);
-      if (comp.size > best.size) best = comp;
+      while (stack.length) { const n = stack.pop(); if (comp.has(n)) continue; comp.add(n); for (const e of APP.adj.get(n)) if (!comp.has(e.to)) stack.push(e.to); }
+      for (const n of comp) seen.add(n); if (comp.size > best.size) best = comp;
     }
     return best;
   }
   function nearestNode(lon, lat) {
     let best = null, bd = Infinity;
-    for (const k of APP.comp) {
-      const [nl, na] = APP.nodes.get(k); const d = meters(lon, lat, nl, na);
-      if (d < bd) { bd = d; best = k; }
-    }
+    for (const k of APP.comp) { const [nl, na] = APP.nodes.get(k); const d = meters(lon, lat, nl, na); if (d < bd) { bd = d; best = k; } }
     return best;
   }
-  class MinHeap {
-    constructor() { this.a = []; }
-    get size() { return this.a.length; }
-    push(x) { const a = this.a; a.push(x); let i = a.length - 1;
-      while (i > 0) { const p = (i - 1) >> 1; if (a[p][0] <= a[i][0]) break; const t = a[p]; a[p] = a[i]; a[i] = t; i = p; } }
-    pop() { const a = this.a, top = a[0], last = a.pop();
-      if (a.length) { a[0] = last; let i = 0; const n = a.length;
-        for (;;) { let l = 2 * i + 1, r = 2 * i + 2, s = i;
-          if (l < n && a[l][0] < a[s][0]) s = l;
-          if (r < n && a[r][0] < a[s][0]) s = r;
-          if (s === i) break; const t = a[s]; a[s] = a[i]; a[i] = t; i = s; } }
-      return top; }
-  }
+  class MinHeap { constructor(){this.a=[];} get size(){return this.a.length;}
+    push(x){const a=this.a;a.push(x);let i=a.length-1;while(i>0){const p=(i-1)>>1;if(a[p][0]<=a[i][0])break;const t=a[p];a[p]=a[i];a[i]=t;i=p;}}
+    pop(){const a=this.a,top=a[0],last=a.pop();if(a.length){a[0]=last;let i=0;const n=a.length;for(;;){let l=2*i+1,r=2*i+2,s=i;if(l<n&&a[l][0]<a[s][0])s=l;if(r<n&&a[r][0]<a[s][0])s=r;if(s===i)break;const t=a[s];a[s]=a[i];a[i]=t;i=s;}}return top;} }
   function astar(sKey, gKey, useDiff) {
     const [glon, glat] = APP.nodes.get(gKey);
     const h = (k) => { const [l, a] = APP.nodes.get(k); return meters(l, a, glon, glat); };
     const open = new MinHeap(); open.push([0, sKey]);
-    const g = new Map([[sKey, 0]]);
-    const gd = new Map([[sKey, 0]]), came = new Map(), closed = new Set();
+    const g = new Map([[sKey, 0]]), gd = new Map([[sKey, 0]]), came = new Map(), closed = new Set();
     while (open.size) {
       const cur = open.pop()[1];
       if (cur === gKey) break;
@@ -405,445 +254,203 @@
         if (closed.has(e.to)) continue;
         const step = e.dist * (1 + RISK_W * e.risk + (useDiff ? DIFF_W * e.diff : 0));
         const ng = g.get(cur) + step;
-        if (ng < (g.has(e.to) ? g.get(e.to) : Infinity)) {
-          g.set(e.to, ng); gd.set(e.to, gd.get(cur) + e.dist); came.set(e.to, cur);
-          open.push([ng + h(e.to), e.to]);
-        }
+        if (ng < (g.has(e.to) ? g.get(e.to) : Infinity)) { g.set(e.to, ng); gd.set(e.to, gd.get(cur) + e.dist); came.set(e.to, cur); open.push([ng + h(e.to), e.to]); }
       }
     }
     if (!came.has(gKey) && sKey !== gKey) return null;
-    const path = [gKey]; while (came.has(path[path.length - 1])) path.push(came.get(path[path.length - 1]));
-    path.reverse();
-    let risk = 0, diff = 0;
-    for (const k of path) { const [l, a] = APP.nodes.get(k); risk += valAt(APP.riskM, l, a); diff += valAt(APP.diffM, l, a); }
-    return { coords: path.map((k) => APP.nodes.get(k)), dist: gd.get(gKey) || 0,
-             avgRisk: risk / path.length, avgDiff: diff / path.length };
+    const path = [gKey]; while (came.has(path[path.length - 1])) path.push(came.get(path[path.length - 1])); path.reverse();
+    return { coords: path.map((k) => APP.nodes.get(k)), dist: gd.get(gKey) || 0 };
   }
-
-  function computeRoute(V) {
+  function computeRoute() {
     if (!APP.startLL || !APP.goalLL) return;
-    const s = nearestNode(APP.startLL[0], APP.startLL[1]);
-    const gk = nearestNode(APP.goalLL[0], APP.goalLL[1]);
+    const s = nearestNode(APP.startLL[0], APP.startLL[1]), gk = nearestNode(APP.goalLL[0], APP.goalLL[1]);
     if (!s || !gk) { setStatus("도로 노드를 찾지 못했습니다."); return; }
-    const useDiff = document.getElementById("avoidDiff").checked;
-    const res = astar(s, gk, useDiff);
+    const res = astar(s, gk, document.getElementById("avoidDiff").checked);
     if (!res) { setStatus("경로를 찾지 못했습니다."); return; }
-    APP.lastRoute = res.coords;
-    drawRoute(V, res.coords);
-    const km = res.dist >= 1000 ? (res.dist / 1000).toFixed(2) + "km" : Math.round(res.dist) + "m";
-    setStatus("실거리 <b>" + km + "</b> · 평균위험 " + res.avgRisk.toFixed(2) +
-              " · 평균난이도 " + res.avgDiff.toFixed(2) + (useDiff ? " · 난이도회피 ON" : ""));
+    APP.lastRoute = res.coords; drawRoute(res.coords);
+    setStatus("실거리 <b>" + fmtDist(res.dist) + "</b> (안전경로)");
   }
 
-  // ── 렌더링 ─────────────────────────────────────────────────────
-  function riskRGB(v) {
-    let r, g, b;
-    if (v < 0.5) { const t = v / 0.5; r = 25 + 205 * t; g = 200 + 30 * t; b = 10; }
-    else { const t = (v - 0.5) / 0.5; r = 230 - 10 * t; g = 230 - 210 * t; b = 10 + 10 * t; }
-    return [Math.round(r), Math.round(g), Math.round(b)];
-  }
-  function diffRGB(v) {
-    let r, g, b;
-    if (v < 0.5) { const t = v / 0.5; r = 60 + 80 * t; g = 200 - 90 * t; b = 210; }
-    else { const t = (v - 0.5) / 0.5; r = 140 + 90 * t; g = 110 - 60 * t; b = 210 - 90 * t; }
-    return [Math.round(r), Math.round(g), Math.round(b)];
-  }
-  function confRGB(v) {   // 낮음=주황(불확실) → 높음=파랑(신뢰)
-    let r, g, b;
-    if (v < 0.5) { const t = v / 0.5; r = 224 - 100 * t; g = 166 - 30 * t; b = 60 + 195 * t; }
-    else { const t = (v - 0.5) / 0.5; r = 124 - 103 * t; g = 136 - 40 * t; b = 255 - 47 * t; }
-    return [Math.round(r), Math.round(g), Math.round(b)];
-  }
+  // ── 렌더링 (Leaflet) ──
+  function riskRGB(v){let r,g,b;if(v<0.5){const t=v/0.5;r=25+205*t;g=200+30*t;b=10;}else{const t=(v-0.5)/0.5;r=230-10*t;g=230-210*t;b=10+10*t;}return [Math.round(r),Math.round(g),Math.round(b)];}
+  function diffRGB(v){let r,g,b;if(v<0.5){const t=v/0.5;r=60+80*t;g=200-90*t;b=210;}else{const t=(v-0.5)/0.5;r=140+90*t;g=110-60*t;b=210-90*t;}return [Math.round(r),Math.round(g),Math.round(b)];}
+  function confRGB(v){let r,g,b;if(v<0.5){const t=v/0.5;r=224-100*t;g=166-30*t;b=60+195*t;}else{const t=(v-0.5)/0.5;r=124-103*t;g=136-40*t;b=255-47*t;}return [Math.round(r),Math.round(g),Math.round(b)];}
   function getLayer(sel) {
     if (sel === "diff") return { M: APP.diffM, rgb: diffRGB, title: "보행 난이도", thr: 0.10, bar: "diff" };
     if (sel === "conf") return { M: APP.confM, rgb: confRGB, title: "현실 반영 신뢰도", thr: 0.04, bar: "conf" };
-    if (sel === "width") return { M: APP.widthNarrow, rgb: riskRGB, title: "골목 폭 — 좁을수록 빨강(원도심)", thr: 0.05, bar: "risk" };
-    if (sel && sel.indexOf("f:") === 0) {
-      const k = sel.slice(2);
-      return { M: APP.factors[k], rgb: riskRGB, title: (APP.flabels[k] || k) + " (개별 요소)", thr: 0.05, bar: "risk" };
-    }
+    if (sel === "width") return { M: APP.widthNarrow, rgb: riskRGB, title: "골목 폭 — 좁을수록 빨강", thr: 0.05, bar: "risk" };
+    if (sel && sel.indexOf("f:") === 0) { const k = sel.slice(2); return { M: APP.factors[k], rgb: riskRGB, title: (APP.flabels[k] || k), thr: 0.05, bar: "risk" }; }
     return { M: APP.riskM, rgb: riskRGB, title: "통합 위험도", thr: 0.06, bar: "risk" };
   }
-  // 지면에 입히는 히트맵 이미지(엔티티 1개) — 촘촘해도 가볍고 부드럽게 표시
-  function renderHeatmap(V, sel) {
-    if (APP.heat) V.entities.remove(APP.heat);
-    APP.layerSel = sel;
-    const L = getLayer(sel), M = L.M;
-    if (!M) return;
+  function layerCanvas(L2) {
     const rows = APP.rows, cols = APP.cols;
     const cv = document.createElement("canvas"); cv.width = cols; cv.height = rows;
-    const ctx = cv.getContext("2d");
-    const img = ctx.createImageData(cols, rows);
+    const ctx = cv.getContext("2d"); const img = ctx.createImageData(cols, rows);
     for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
-      const v = M[r][c];
-      const idx = ((rows - 1 - r) * cols + c) * 4;   // 캔버스 위쪽 = 북(lat_max)
-      if (v < L.thr) { img.data[idx + 3] = 0; continue; }
-      const col = L.rgb(v);
-      img.data[idx] = col[0]; img.data[idx + 1] = col[1]; img.data[idx + 2] = col[2];
-      img.data[idx + 3] = 185;
+      const v = L2.M[r][c]; const idx = ((rows - 1 - r) * cols + c) * 4;
+      if (v < L2.thr) { img.data[idx + 3] = 0; continue; }
+      const col = L2.rgb(v); img.data[idx] = col[0]; img.data[idx + 1] = col[1]; img.data[idx + 2] = col[2]; img.data[idx + 3] = 255;
     }
-    ctx.putImageData(img, 0, 0);
-    const a = APP.area;
-    APP.heat = V.entities.add({
-      rectangle: {
-        coordinates: Cesium.Rectangle.fromDegrees(a.lon_min, a.lat_min, a.lon_max, a.lat_max),
-        material: new Cesium.ImageMaterialProperty({ image: cv, transparent: true }),
-        height: 2,
-      },
-    });
-    document.getElementById("legendTitle").textContent = L.title;
-    document.getElementById("legendBar").className = "bar " + L.bar;
+    ctx.putImageData(img, 0, 0); return cv;
   }
-  // 지점 클릭 → 위험도 요소별 기여도 % + 신뢰도
+  function renderHeatmap(sel) {
+    APP.layerSel = sel; const L2 = getLayer(sel); if (!L2.M) return;
+    const a = APP.area, bounds = [[a.lat_min, a.lon_min], [a.lat_max, a.lon_max]];
+    const url = layerCanvas(L2).toDataURL();
+    if (APP.heatLayer) APP.heatLayer.setUrl(url);
+    else APP.heatLayer = L.imageOverlay(url, bounds, { opacity: 0.6, interactive: false }).addTo(APP.map);
+    APP.heatLayer.setOpacity(0.6);
+    document.getElementById("legendTitle").textContent = L2.title;
+    document.getElementById("legendBar").className = "bar " + L2.bar;
+  }
+  function drawRoute(coords) {
+    const ll = coords.map((p) => [p[1], p[0]]);
+    if (APP.routeLayer) APP.map.removeLayer(APP.routeLayer);
+    APP.routeLayer = L.polyline(ll, { color: "#37b6ff", weight: APP.navMode ? 8 : 6, opacity: 0.95 }).addTo(APP.map);
+  }
+  function mark(lat, lon, color, label) {
+    return L.circleMarker([lat, lon], { radius: 8, color: "#fff", weight: 2, fillColor: color, fillOpacity: 1 })
+      .addTo(APP.map).bindTooltip(label, { permanent: true, direction: "top", offset: [0, -6] });
+  }
+  function setStart(lat, lon) { APP.startLL = [lon, lat]; if (APP.mStart) APP.map.removeLayer(APP.mStart); APP.mStart = mark(lat, lon, "#22c55e", "출발"); }
+  function setGoal(lat, lon) { APP.goalLL = [lon, lat]; if (APP.mGoal) APP.map.removeLayer(APP.mGoal); APP.mGoal = mark(lat, lon, "#ef4444", "도착"); }
+  function setMe(lat, lon, heading) {
+    const icon = L.divIcon({ className: "", iconSize: [26, 26],
+      html: '<div class="memark" style="transform:rotate(' + (heading || 0) + 'deg)">' + (APP.navMode ? "➤" : "●") + '</div>' });
+    if (APP.mMe) APP.mMe.setLatLng([lat, lon]).setIcon(icon);
+    else APP.mMe = L.marker([lat, lon], { icon }).addTo(APP.map);
+  }
+  function renderAccidents() {
+    if (APP.accLayer) APP.map.removeLayer(APP.accLayer);
+    APP.accLayer = L.layerGroup((APP.accidents || []).map((x) =>
+      L.circleMarker([x[1], x[0]], { radius: 4, color: "#fff", weight: 1, fillColor: "#ff3838", fillOpacity: 0.9 }))).addTo(APP.map);
+  }
   function analyzeCell(lon, lat) {
     const rc = cellRC(lon, lat), r = rc[0], c = rc[1];
-    const risk = APP.riskM[r][c], conf = APP.confM[r][c];
-    const el = document.getElementById("analysis");
-    if (risk < 0.03) { el.innerHTML = "<b>지점 분석</b><br>이 지점은 위험 요소가 낮습니다 (도로에서 먼 곳일 수 있음)."; return; }
-    const items = Object.keys(APP.weights).map((k) => ({
-      label: APP.flabels[k], contrib: APP.weights[k] * APP.factors[k][r][c],
-    }));
-    const total = items.reduce((s, i) => s + i.contrib, 0) || 1e-9;
-    items.sort((a, b) => b.contrib - a.contrib);
-    let html = "<b>📊 지점 분석</b><br>위험도 <b style='color:#ff8a6a'>" + risk.toFixed(2) +
-      "</b> · 현실반영 신뢰도 <b style='color:#5fa8ff'>" + Math.round(conf * 100) + "%</b><br>" +
-      "<span style='opacity:.7'>요소별 기여도:</span><br>";
-    items.forEach((i) => {
-      const pct = Math.round(i.contrib / total * 100);
-      html += i.label + " <span class='bar2' style='width:" + Math.max(2, pct) +
-        "px;background:#ff7a4d'></span> <b>" + pct + "%</b><br>";
-    });
-    if (APP.slopeDeg) {
-      html += "<span style='opacity:.7'>경사:</span> <b>" + APP.slopeDeg[r][c].toFixed(1) +
-        "°</b> · 방향 <b>" + compass8(APP.aspect[r][c]) + "</b><br>";
-    }
-    if (APP.alleyW && APP.alleyW[r][c] >= 0) {
-      html += "<span style='opacity:.7'>골목 폭(추정):</span> <b>~" + Math.round(APP.alleyW[r][c]) + "m</b><br>";
-    }
+    const risk = APP.riskM[r][c], conf = APP.confM[r][c], el = document.getElementById("analysis");
+    if (risk < 0.03) { el.innerHTML = "<b>지점 분석</b><br>위험 요소가 낮은 지점입니다."; return; }
+    const items = Object.keys(APP.weights).map((k) => ({ label: APP.flabels[k], contrib: APP.weights[k] * APP.factors[k][r][c] }));
+    const total = items.reduce((s, i) => s + i.contrib, 0) || 1e-9; items.sort((a, b) => b.contrib - a.contrib);
+    let html = "<b>📊 지점 분석</b><br>위험도 <b style='color:#ff8a6a'>" + risk.toFixed(2) + "</b> · 신뢰도 <b style='color:#5fa8ff'>" + Math.round(conf * 100) + "%</b><br>";
+    items.forEach((i) => { const pct = Math.round(i.contrib / total * 100); html += i.label + " <span class='bar2' style='width:" + Math.max(2, pct) + "px;background:#ff7a4d'></span> <b>" + pct + "%</b><br>"; });
+    if (APP.slopeDeg) html += "<span style='opacity:.7'>경사:</span> <b>" + APP.slopeDeg[r][c].toFixed(1) + "°</b> · " + compass8(APP.aspect[r][c]) + "<br>";
+    if (APP.alleyW && APP.alleyW[r][c] >= 0) html += "<span style='opacity:.7'>골목 폭:</span> <b>~" + Math.round(APP.alleyW[r][c]) + "m</b><br>";
     el.innerHTML = html;
   }
-  // 실제 사고지점(빨간 점) — 위험지도 검증(ground-truthing) 시각화
-  function renderAccidents(V) {
-    (APP.accidents || []).forEach((a) => {
-      V.entities.add({
-        position: Cesium.Cartesian3.fromDegrees(a[0], a[1], ROUTE_H),
-        point: { pixelSize: 8, color: Cesium.Color.fromBytes(255, 40, 40, 235),
-          outlineColor: Cesium.Color.WHITE, outlineWidth: 1 },
-      });
-    });
-  }
   function showValidation() {
-    const v = APP.validation;
-    if (!v || !v["위험도_배수"]) return;
-    document.getElementById("analysis").innerHTML =
-      "🎯 <b>검증(실제 사고 " + (v["사고표본수"] || 0) + "건)</b><br>사고지점이 평균 <b style='color:#ff8a6a'>" +
-      v["위험도_배수"] + "배</b> 위험구간 · <b>" + v["사고_상위25위험구간_포함율%"] +
-      "%</b>가 상위25%<br><span style='opacity:.65'>비순환 환경위험 " + v["비순환_환경위험_배수"] +
-      "배 · 빨간점=실제 사고지점</span>";
-  }
-  // V-World 3D 건물 타일 숨김 (top-down 위험도 지도에 집중). 늦게 로드되므로 몇 번 재시도.
-  function hideBuildings(V) {
-    try {
-      const prims = V.scene.primitives;
-      for (let i = 0; i < prims.length; i++) {
-        const p = prims.get(i);
-        if (window.Cesium && Cesium.Cesium3DTileset && p instanceof Cesium.Cesium3DTileset) p.show = false;
-      }
-    } catch (e) { /* 무시 */ }
-  }
-  function drawRoads(V, roads) {
-    (roads.lines || []).forEach((line) => {
-      if (line.length < 2) return;
-      const deg = []; line.forEach((p) => deg.push(p[0], p[1], ROAD_H));
-      V.entities.add({ polyline: {
-        positions: Cesium.Cartesian3.fromDegreesArrayHeights(deg),
-        width: 2, material: Cesium.Color.fromBytes(255, 255, 255, 120) } });
-    });
-  }
-  function drawRoute(V, coords) {
-    if (APP.ent.route) V.entities.remove(APP.ent.route);
-    const deg = []; coords.forEach((p) => deg.push(p[0], p[1], ROUTE_H));
-    APP.ent.route = V.entities.add({ polyline: {
-      positions: Cesium.Cartesian3.fromDegreesArrayHeights(deg), width: 9,
-      material: new Cesium.PolylineGlowMaterialProperty({
-        glowPower: 0.28, color: Cesium.Color.fromBytes(55, 182, 255, 255) }) } });
-  }
-  function marker(V, lon, lat, label, color) {
-    return V.entities.add({
-      position: Cesium.Cartesian3.fromDegrees(lon, lat, ROUTE_H),
-      point: { pixelSize: 14, color: color, outlineColor: Cesium.Color.WHITE, outlineWidth: 2 },
-      label: { text: label, font: "14px sans-serif", fillColor: Cesium.Color.WHITE,
-        style: Cesium.LabelStyle.FILL_AND_OUTLINE, outlineWidth: 3, outlineColor: Cesium.Color.BLACK,
-        pixelOffset: new Cesium.Cartesian2(0, -22), verticalOrigin: Cesium.VerticalOrigin.BOTTOM } });
-  }
-  function setStart(V, lon, lat) {
-    APP.startLL = [lon, lat]; if (APP.ent.start) V.entities.remove(APP.ent.start);
-    APP.ent.start = marker(V, lon, lat, "출발", Cesium.Color.LIME);
-  }
-  function setGoal(V, lon, lat) {
-    APP.goalLL = [lon, lat]; if (APP.ent.goal) V.entities.remove(APP.ent.goal);
-    APP.ent.goal = marker(V, lon, lat, "도착", Cesium.Color.RED);
-  }
-  // 현재 위치 마커(청록 점) — GPS/시뮬 공용
-  function setMe(V, lon, lat) {
-    if (APP.ent.me) V.entities.remove(APP.ent.me);
-    APP.ent.me = V.entities.add({
-      position: Cesium.Cartesian3.fromDegrees(lon, lat, ROUTE_H + 6),
-      point: { pixelSize: 16, color: Cesium.Color.fromBytes(0, 220, 255, 255),
-        outlineColor: Cesium.Color.WHITE, outlineWidth: 3 },
-      label: { text: "현재위치", font: "12px sans-serif", fillColor: Cesium.Color.WHITE,
-        style: Cesium.LabelStyle.FILL_AND_OUTLINE, outlineWidth: 3, outlineColor: Cesium.Color.BLACK,
-        pixelOffset: new Cesium.Cartesian2(0, -20), verticalOrigin: Cesium.VerticalOrigin.BOTTOM } });
-  }
-  function stopSim() { if (APP.simTimer) { clearInterval(APP.simTimer); APP.simTimer = null; } }
-  // 계산된 경로를 따라 현재위치 마커를 이동(네이버 내비 시연)
-  function simulateAlong(V) {
-    const pts = APP.lastRoute;
-    if (!pts || pts.length < 2) { setStatus("먼저 경로를 만들어 주세요."); return; }
-    stopSim();
-    const cum = [0];
-    for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1] + meters(pts[i - 1][0], pts[i - 1][1], pts[i][0], pts[i][1]));
-    const total = cum[cum.length - 1];
-    const dur = Math.min(40000, Math.max(8000, total * 15)); // 8~40초
-    const t0 = performance.now();
-    APP.simTimer = setInterval(() => {
-      let f = (performance.now() - t0) / dur; if (f > 1) f = 1;
-      const d = f * total;
-      let i = 1; while (i < cum.length - 1 && cum[i] < d) i++;
-      const seg = Math.max(1e-6, cum[i] - cum[i - 1]), tt = Math.min(1, (d - cum[i - 1]) / seg);
-      const lon = pts[i - 1][0] + (pts[i][0] - pts[i - 1][0]) * tt;
-      const lat = pts[i - 1][1] + (pts[i][1] - pts[i - 1][1]) * tt;
-      setMe(V, lon, lat);
-      setStatus("🚶 이동 시뮬 " + Math.round(f * 100) + "% · 남은거리 " + Math.round(total - d) + "m");
-      if (f >= 1) { stopSim(); setStatus("🏁 목적지 도착! (총 " + Math.round(total) + "m)"); }
-    }, 100);
-  }
-  // 실시간 GPS 추적 토글
-  function toggleTrack(V, btn) {
-    if (APP.watchId != null) {
-      navigator.geolocation.clearWatch(APP.watchId); APP.watchId = null;
-      btn.textContent = "실시간 위치"; setStatus("실시간 추적 종료."); return;
-    }
-    if (!navigator.geolocation) { setStatus("이 브라우저는 GPS 미지원."); return; }
-    btn.textContent = "추적 중지"; setStatus("실시간 위치 추적 중…");
-    APP.watchId = navigator.geolocation.watchPosition((pos) => {
-      let lon = pos.coords.longitude, lat = pos.coords.latitude;
-      if (!inArea(lon, lat)) setStatus("⚠ 현재 위치가 덕풍동 밖 — 경계로 표시");
-      const p = clampArea(lon, lat); setMe(V, p[0], p[1]);
-    }, () => setStatus("위치 권한이 거부되었습니다."), { enableHighAccuracy: true, maximumAge: 1000 });
-  }
-  function flyToArea(V) {
-    const a = APP.area;
-    const spanLat = a.lat_max - a.lat_min;         // 영역 크기에 맞춰 카메라 높이 자동
-    const h = spanLat * 111000 * 1.3;
-    V.camera.flyTo({
-      destination: Cesium.Cartesian3.fromDegrees((a.lon_min + a.lon_max) / 2, a.lat_min - spanLat * 0.15, h),
-      orientation: { heading: 0, pitch: Cesium.Math.toRadians(-85), roll: 0 }, duration: 2.0 });
+    const v = APP.validation; if (!v || !v["위험도_배수"]) return;
+    document.getElementById("analysis").innerHTML = "🎯 <b>검증(실제 사고 " + (v["사고표본수"] || 0) + "건)</b><br>사고지점 평균 <b style='color:#ff8a6a'>" + v["위험도_배수"] + "배</b> 위험 · <b>" + v["사고_상위25위험구간_포함율%"] + "%</b>가 상위25%<br><span style='opacity:.65'>빨간점=실제 사고지점</span>";
   }
 
-  // ── 내비게이션 모드 (모바일 위주: 방향·남은거리·지도 따라오기) ─────────
-  function fmtDist(m) { return m >= 1000 ? (m / 1000).toFixed(2) + "km" : Math.round(m) + "m"; }
-  function remainingDistance(lon, lat) {
-    const pts = APP.lastRoute; if (!pts || pts.length < 2) return 0;
-    let bi = 0, bd = Infinity;
-    for (let i = 0; i < pts.length; i++) { const d = meters(lon, lat, pts[i][0], pts[i][1]); if (d < bd) { bd = d; bi = i; } }
-    let rem = meters(lon, lat, pts[bi][0], pts[bi][1]);
-    for (let i = bi; i < pts.length - 1; i++) rem += meters(pts[i][0], pts[i][1], pts[i + 1][0], pts[i + 1][1]);
-    return rem;
-  }
-  function requestHeading() {
-    const handler = (e) => {
-      let h = null;
-      if (e.webkitCompassHeading != null) h = e.webkitCompassHeading;   // iOS: 0=북 시계
-      else if (e.alpha != null) h = 360 - e.alpha;                       // Android
-      if (h != null && !isNaN(h)) APP.compassHeading = ((h % 360) + 360) % 360;
-    };
-    const DOE = window.DeviceOrientationEvent;
-    if (DOE && typeof DOE.requestPermission === "function") {
-      DOE.requestPermission().then((s) => { if (s === "granted") window.addEventListener("deviceorientation", handler, true); }).catch(() => {});
-    } else if (DOE) {
-      window.addEventListener("deviceorientationabsolute", handler, true);
-      window.addEventListener("deviceorientation", handler, true);
-    }
-  }
-  function onNavPos(V, pos) {
-    let lon = pos.coords.longitude, lat = pos.coords.latitude;
-    if (!inArea(lon, lat)) { const p = clampArea(lon, lat); lon = p[0]; lat = p[1]; }
-    let hd = APP.compassHeading;
-    if (hd == null && pos.coords.heading != null && !isNaN(pos.coords.heading)) hd = pos.coords.heading;
-    if (hd == null) hd = APP.lastHeading || 0;
-    APP.lastHeading = hd;
-    setMe(V, lon, lat);
-    const h = hd * Math.PI / 180, backM = 130;                          // 카메라를 사용자 뒤에 두고 전방 조망
-    const dLat = -Math.cos(h) * backM / 111000;
-    const dLon = -Math.sin(h) * backM / (111000 * Math.cos(lat * Math.PI / 180));
-    V.camera.setView({
-      destination: Cesium.Cartesian3.fromDegrees(lon + dLon, lat + dLat, 270),
-      orientation: { heading: h, pitch: Cesium.Math.toRadians(-45), roll: 0 },
-    });
-    const rem = remainingDistance(lon, lat);
-    document.getElementById("navdist").innerHTML =
-      rem < 25 ? "🏁 도착!" : (fmtDist(rem) + " <small>남음</small>");
-  }
-  function startNav(V) {
-    if (!APP.lastRoute || APP.lastRoute.length < 2) { setStatus("먼저 경로를 만들어 주세요."); return; }
-    if (!navigator.geolocation) { setStatus("이 기기는 GPS 미지원."); return; }
-    APP.navMode = true;
-    if (APP.heat) { V.entities.remove(APP.heat); APP.heat = null; }   // 히트맵 숨김 → 실제 지도+경로만
-    if (APP.ent.route) APP.ent.route.polyline.width = 12;             // 경로 굵게
-    document.getElementById("navbar").classList.add("on");
-    document.getElementById("ctrl").classList.add("collapsed");
-    requestHeading();
-    APP.navWatch = navigator.geolocation.watchPosition(
-      (pos) => onNavPos(V, pos), () => setStatus("위치 권한이 필요합니다."),
-      { enableHighAccuracy: true, maximumAge: 1000 });
-  }
-  function stopNav(V) {
-    APP.navMode = false;
-    if (APP.navWatch != null) { navigator.geolocation.clearWatch(APP.navWatch); APP.navWatch = null; }
-    document.getElementById("navbar").classList.remove("on");
-    document.getElementById("ctrl").classList.remove("collapsed");
-    renderHeatmap(V, APP.layerSel || "risk");     // 히트맵 복원
-    if (APP.ent.route) APP.ent.route.polyline.width = 9;
-    flyToArea(V);
-  }
-
-  // ── 입력(주소·GPS·클릭) ────────────────────────────────────────
-  function inArea(lon, lat) {
-    const a = APP.area;
-    return lon >= a.lon_min && lon <= a.lon_max && lat >= a.lat_min && lat <= a.lat_max;
-  }
-  function clampArea(lon, lat) {
-    const a = APP.area;
-    return [Math.min(Math.max(lon, a.lon_min), a.lon_max), Math.min(Math.max(lat, a.lat_min), a.lat_max)];
-  }
-  function esc(s) {
-    return (s || "").replace(/[&<>"]/g, (c) =>
-      ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
-  }
-  // JSONP: V-World 검색을 브라우저에서 직접 호출(CORS 우회) → 서버 프록시 불필요, 정적 배포 가능
+  // ── 검색 (JSONP, 지도 무관) ──
+  function esc(s) { return (s || "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
   function jsonp(url) {
     return new Promise((resolve, reject) => {
-      const cb = "vwcb_" + Math.random().toString(36).slice(2);
-      const s = document.createElement("script");
-      const timer = setTimeout(() => { cleanup(); reject(new Error("timeout")); }, 8000);
+      const cb = "vwcb_" + Math.random().toString(36).slice(2), s = document.createElement("script");
+      const timer = setTimeout(() => { cleanup(); reject(); }, 8000);
       function cleanup() { clearTimeout(timer); delete window[cb]; s.remove(); }
-      window[cb] = (data) => { cleanup(); resolve(data); };
-      s.onerror = () => { cleanup(); reject(new Error("jsonp error")); };
-      s.src = url + (url.indexOf("?") >= 0 ? "&" : "?") + "callback=" + cb;
-      document.head.appendChild(s);
+      window[cb] = (d) => { cleanup(); resolve(d); }; s.onerror = () => { cleanup(); reject(); };
+      s.src = url + (url.indexOf("?") >= 0 ? "&" : "?") + "callback=" + cb; document.head.appendChild(s);
     });
   }
   async function poiSearch(query) {
-    const base = "https://api.vworld.kr/req/search?service=search&request=search&version=2.0" +
-      "&crs=EPSG:4326&size=8&format=json&key=" + encodeURIComponent(KEY) + "&query=" + encodeURIComponent(query);
+    const base = "https://api.vworld.kr/req/search?service=search&request=search&version=2.0&crs=EPSG:4326&size=8&format=json&key=" + encodeURIComponent(KEY) + "&query=" + encodeURIComponent(query);
     for (const t of ["place", "address"]) {
       try {
         const j = await jsonp(base + "&type=" + t);
-        const items = (((j.response || {}).result || {}).items) || [];
-        const out = [];
-        items.forEach((it) => {
-          const p = it.point || {}, x = parseFloat(p.x), y = parseFloat(p.y);
-          if (isFinite(x) && isFinite(y)) {
-            const ad = it.address || {};
-            out.push({ title: it.title || query, addr: ad.road || ad.parcel || "", lon: x, lat: y });
-          }
-        });
+        const items = (((j.response || {}).result || {}).items) || [], out = [];
+        items.forEach((it) => { const p = it.point || {}, x = parseFloat(p.x), y = parseFloat(p.y); if (isFinite(x) && isFinite(y)) { const ad = it.address || {}; out.push({ title: it.title || query, addr: ad.road || ad.parcel || "", lon: x, lat: y }); } });
         if (out.length) return out;
-      } catch (e) { /* 다음 타입 시도 */ }
+      } catch (e) { }
     }
     return [];
   }
-  // 입력창에 자동완성 드롭다운 연결
-  function attachSearch(V, input, sugg, which) {
+  function attachSearch(input, sugg, which) {
     let timer = null, items = [];
     const close = () => { sugg.classList.remove("open"); sugg.innerHTML = ""; };
-    const choose = (it) => {
-      input.value = it.title; close();
-      (which === "start" ? setStart : setGoal)(V, it.lon, it.lat);
-      if (!inArea(it.lon, it.lat)) setStatus("⚠ '" + it.title + "' 는 덕풍동 영역 밖입니다.");
-      computeRoute(V);
-    };
+    const choose = (it) => { input.value = it.title; close(); (which === "start" ? setStart : setGoal)(it.lat, it.lon); APP.map.setView([it.lat, it.lon], 16); computeRoute(); };
     const render = (list) => {
       items = list || [];
-      if (list === null) {
-        sugg.innerHTML = '<div class="empty">검색하려면 <b>python serve.py</b> 로 실행하세요.</div>';
-      } else if (!list.length) {
-        sugg.innerHTML = '<div class="empty">검색 결과 없음</div>';
-      } else {
-        sugg.innerHTML = list.map((it, i) =>
-          '<div class="it" data-i="' + i + '"><div class="t">' + esc(it.title) +
-          '</div><div class="a">' + esc(it.addr) + '</div></div>').join("");
-        [...sugg.querySelectorAll(".it")].forEach((el) =>
-          el.addEventListener("mousedown", (ev) => { ev.preventDefault(); choose(list[+el.dataset.i]); }));
-      }
+      if (!list.length) sugg.innerHTML = '<div class="empty">검색 결과 없음</div>';
+      else { sugg.innerHTML = list.map((it, i) => '<div class="it" data-i="' + i + '"><div class="t">' + esc(it.title) + '</div><div class="a">' + esc(it.addr) + '</div></div>').join(""); [...sugg.querySelectorAll(".it")].forEach((el) => el.addEventListener("mousedown", (ev) => { ev.preventDefault(); choose(list[+el.dataset.i]); })); }
       sugg.classList.add("open");
     };
-    input.addEventListener("input", () => {
-      const q = input.value.trim(); clearTimeout(timer);
-      if (q.length < 2) { close(); return; }
-      timer = setTimeout(async () => render(await poiSearch(q)), 250);
-    });
-    input.addEventListener("keydown", (e) => {
-      if (e.key === "Enter" && items.length) { e.preventDefault(); choose(items[0]); }
-      else if (e.key === "Escape") close();
-    });
+    input.addEventListener("input", () => { const q = input.value.trim(); clearTimeout(timer); if (q.length < 2) { close(); return; } timer = setTimeout(async () => render(await poiSearch(q)), 250); });
+    input.addEventListener("keydown", (e) => { if (e.key === "Enter" && items.length) { e.preventDefault(); choose(items[0]); } });
     input.addEventListener("blur", () => setTimeout(close, 150));
   }
-  function bindUI(V) {
-    attachSearch(V, document.getElementById("startAddr"), document.getElementById("startSugg"), "start");
-    attachSearch(V, document.getElementById("goalAddr"), document.getElementById("goalSugg"), "goal");
-    document.getElementById("navStartBtn").addEventListener("click", () => startNav(V));
-    document.getElementById("navEndBtn").addEventListener("click", () => stopNav(V));
-    // 모바일/태블릿: 제목 탭으로 컨트롤 접기/펼치기
-    document.querySelector("#ctrl h4").addEventListener("click", () => {
-      if (window.matchMedia("(max-width: 860px)").matches) document.getElementById("ctrl").classList.toggle("collapsed");
-    });
-    document.getElementById("gpsBtn").addEventListener("click", () => {
-      if (!navigator.geolocation) { setStatus("이 브라우저는 GPS 미지원."); return; }
-      setStatus("현재 위치 확인 중…");
-      navigator.geolocation.getCurrentPosition(
-        (pos) => {
-          let lon = pos.coords.longitude, lat = pos.coords.latitude;
-          if (!inArea(lon, lat)) setStatus("⚠ 현재 위치가 덕풍동 밖 — 영역 경계로 스냅합니다.");
-          const p = clampArea(lon, lat); setStart(V, p[0], p[1]); computeRoute(V);
-        },
-        () => setStatus("위치 권한이 거부되었습니다."), { enableHighAccuracy: true, timeout: 8000 });
-    });
-    document.getElementById("findBtn").addEventListener("click", () => computeRoute(V));
-    document.getElementById("simBtn").addEventListener("click", () => simulateAlong(V));
-    document.getElementById("simStopBtn").addEventListener("click", () => { stopSim(); setStatus("시뮬 정지."); });
-    document.getElementById("trackBtn").addEventListener("click", (e) => toggleTrack(V, e.target));
+
+  // ── GPS / 네비게이션 ──
+  function inArea(lon, lat) { const a = APP.area; return lon >= a.lon_min && lon <= a.lon_max && lat >= a.lat_min && lat <= a.lat_max; }
+  function clampArea(lon, lat) { const a = APP.area; return [Math.min(Math.max(lon, a.lon_min), a.lon_max), Math.min(Math.max(lat, a.lat_min), a.lat_max)]; }
+  function remainingDistance(lon, lat) {
+    const pts = APP.lastRoute; if (!pts || pts.length < 2) return 0;
+    let bi = 0, bd = Infinity; for (let i = 0; i < pts.length; i++) { const d = meters(lon, lat, pts[i][0], pts[i][1]); if (d < bd) { bd = d; bi = i; } }
+    let rem = meters(lon, lat, pts[bi][0], pts[bi][1]); for (let i = bi; i < pts.length - 1; i++) rem += meters(pts[i][0], pts[i][1], pts[i + 1][0], pts[i + 1][1]); return rem;
+  }
+  function requestHeading() {
+    const handler = (e) => { let h = null; if (e.webkitCompassHeading != null) h = e.webkitCompassHeading; else if (e.alpha != null) h = 360 - e.alpha; if (h != null && !isNaN(h)) APP.compassHeading = ((h % 360) + 360) % 360; };
+    const DOE = window.DeviceOrientationEvent;
+    if (DOE && typeof DOE.requestPermission === "function") DOE.requestPermission().then((s) => { if (s === "granted") window.addEventListener("deviceorientation", handler, true); }).catch(() => {});
+    else if (DOE) { window.addEventListener("deviceorientationabsolute", handler, true); window.addEventListener("deviceorientation", handler, true); }
+  }
+  function onNavPos(pos) {
+    let lon = pos.coords.longitude, lat = pos.coords.latitude;
+    if (!inArea(lon, lat)) { const p = clampArea(lon, lat); lon = p[0]; lat = p[1]; }
+    let hd = APP.compassHeading; if (hd == null && pos.coords.heading != null && !isNaN(pos.coords.heading)) hd = pos.coords.heading; if (hd == null) hd = APP.lastHeading; APP.lastHeading = hd;
+    setMe(lat, lon, hd); APP.map.setView([lat, lon], 17, { animate: true });
+    const rem = remainingDistance(lon, lat);
+    document.getElementById("navdist").innerHTML = rem < 25 ? "🏁 도착!" : (fmtDist(rem) + " <small>남음</small>");
+  }
+  function startNav() {
+    if (!APP.lastRoute || APP.lastRoute.length < 2) { setStatus("먼저 경로를 만들어 주세요."); return; }
+    if (!navigator.geolocation) { setStatus("GPS 미지원."); return; }
+    APP.navMode = true;
+    if (APP.heatLayer) APP.heatLayer.setOpacity(0);              // 히트맵 숨김 → 도로+경로
+    if (APP.routeLayer) APP.routeLayer.setStyle({ weight: 8 });
+    document.getElementById("navbar").classList.add("on");
+    document.getElementById("ctrl").classList.add("collapsed");
+    requestHeading();
+    APP.navWatch = navigator.geolocation.watchPosition(onNavPos, () => setStatus("위치 권한 필요."), { enableHighAccuracy: true, maximumAge: 1000 });
+  }
+  function stopNav() {
+    APP.navMode = false;
+    if (APP.navWatch != null) { navigator.geolocation.clearWatch(APP.navWatch); APP.navWatch = null; }
+    if (APP.heatLayer) APP.heatLayer.setOpacity(0.6);
+    if (APP.routeLayer) APP.routeLayer.setStyle({ weight: 6 });
+    document.getElementById("navbar").classList.remove("on");
+    document.getElementById("ctrl").classList.remove("collapsed");
+    const a = APP.area; APP.map.setView([(a.lat_min + a.lat_max) / 2, (a.lon_min + a.lon_max) / 2], 13);
+  }
+
+  function bindUI() {
+    attachSearch(document.getElementById("startAddr"), document.getElementById("startSugg"), "start");
+    attachSearch(document.getElementById("goalAddr"), document.getElementById("goalSugg"), "goal");
+    document.getElementById("findBtn").addEventListener("click", computeRoute);
     document.getElementById("resetBtn").addEventListener("click", () => {
-      stopSim();
-      ["start", "goal", "route", "me"].forEach((k) => { if (APP.ent[k]) { V.entities.remove(APP.ent[k]); APP.ent[k] = null; } });
-      APP.startLL = APP.goalLL = null; APP.lastRoute = null; APP.nextClick = "start"; setStatus("출발·도착을 지정하세요.");
+      [APP.mStart, APP.mGoal, APP.routeLayer, APP.mMe].forEach((m) => m && APP.map.removeLayer(m));
+      APP.mStart = APP.mGoal = APP.routeLayer = APP.mMe = null; APP.startLL = APP.goalLL = APP.lastRoute = null; APP.nextClick = "start"; setStatus("출발·도착을 지정하세요.");
     });
-    document.getElementById("clickStartBtn").addEventListener("click", () => { APP.nextClick = "start"; setStatus("지도에서 출발지를 클릭하세요."); });
-    document.getElementById("clickGoalBtn").addEventListener("click", () => { APP.nextClick = "goal"; setStatus("지도에서 도착지를 클릭하세요."); });
-    document.getElementById("avoidDiff").addEventListener("change", () => computeRoute(V));
-    document.getElementById("layerSel").addEventListener("change", (e) => renderHeatmap(V, e.target.value));
-
-    // 지도 클릭 → 출발/도착 지정
-    const handler = new Cesium.ScreenSpaceEventHandler(V.scene.canvas);
-    handler.setInputAction((click) => {
-      const ray = V.camera.getPickRay(click.position);
-      const pos = V.scene.globe.pick(ray, V.scene);
-      if (!pos) return;
-      const carto = Cesium.Cartographic.fromCartesian(pos);
-      const lon = Cesium.Math.toDegrees(carto.longitude), lat = Cesium.Math.toDegrees(carto.latitude);
-      if (document.getElementById("analyzeMode").checked) { analyzeCell(lon, lat); return; } // 분석 모드
-      if (APP.nextClick === "start") { setStart(V, lon, lat); APP.nextClick = "goal"; setStatus("도착지를 지정하세요."); }
-      else { setGoal(V, lon, lat); APP.nextClick = "start"; computeRoute(V); }
-    }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
+    document.getElementById("navStartBtn").addEventListener("click", startNav);
+    document.getElementById("navEndBtn").addEventListener("click", stopNav);
+    document.getElementById("avoidDiff").addEventListener("change", computeRoute);
+    document.getElementById("layerSel").addEventListener("change", (e) => renderHeatmap(e.target.value));
+    document.getElementById("gpsBtn").addEventListener("click", () => {
+      if (!navigator.geolocation) { setStatus("GPS 미지원."); return; }
+      setStatus("현재 위치 확인 중…");
+      navigator.geolocation.getCurrentPosition((pos) => { let lon = pos.coords.longitude, lat = pos.coords.latitude; if (!inArea(lon, lat)) setStatus("⚠ 영역 밖 — 경계로 스냅"); const p = clampArea(lon, lat); setStart(p[1], p[0]); APP.map.setView([p[1], p[0]], 16); computeRoute(); }, () => setStatus("위치 권한 거부됨."), { enableHighAccuracy: true, timeout: 8000 });
+    });
+    document.querySelector("#ctrl h4").addEventListener("click", () => { if (window.matchMedia("(max-width:860px)").matches) document.getElementById("ctrl").classList.toggle("collapsed"); });
+    APP.map.on("click", (e) => {
+      const lon = e.latlng.lng, lat = e.latlng.lat;
+      if (document.getElementById("analyzeMode").checked) { analyzeCell(lon, lat); return; }
+      if (APP.nextClick === "start") { setStart(lat, lon); APP.nextClick = "goal"; setStatus("도착지를 지정하세요."); }
+      else { setGoal(lat, lon); APP.nextClick = "start"; computeRoute(); }
+    });
   }
 
-  function setStatus(html) { document.getElementById("status").innerHTML = html; }
-  function showErr(msg) {
-    const e = document.getElementById("err"); e.style.display = "block"; e.innerHTML = msg;
-    const s = document.getElementById("status"); if (s) s.textContent = "오류";
-    console.error(msg);
-  }
+  function setStatus(h) { const s = document.getElementById("status"); if (s) s.innerHTML = h; }
+  function showErr(m) { const e = document.getElementById("err"); e.style.display = "block"; e.innerHTML = m; console.error(m); }
 })();
 </script>
 </body>
