@@ -149,10 +149,8 @@
     showValidation();
     bindUI();
 
-    const sp = 0.35;
-    setStart(a.lat_min + sp * (a.lat_max - a.lat_min), a.lon_min + sp * (a.lon_max - a.lon_min));
-    setGoal(a.lat_min + (1 - sp) * (a.lat_max - a.lat_min), a.lon_min + (1 - sp) * (a.lon_max - a.lon_min));
-    APP.nextClick = "start"; computeRoute();
+    APP.nextClick = "start";
+    setStatus("출발·도착을 검색하거나 지도를 클릭해 경로를 만드세요.");
   }
 
   // ── 격자 값 ──
