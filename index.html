@@ -199,6 +199,7 @@
 
     APP.area = grid.area; APP.rows = grid.grid.rows; APP.cols = grid.grid.cols;
     buildMatrices(grid);
+    populateLayerSelect();
     if (roads.lines && roads.lines.length <= 800) drawRoads(V, roads); // 도로 많으면(시 전체) 오버레이 생략
     buildGraph(roads);
     APP.comp = largestComponent();
@@ -238,6 +239,12 @@
   function compass8(d) {
     if (d < 0) return "평지";
     return ["북 ↑", "북동 ↗", "동 →", "남동 ↘", "남 ↓", "남서 ↙", "서 ←", "북서 ↖"][Math.round(d / 45) % 8];
+  }
+  function populateLayerSelect() {   // 요소 목록에서 드롭다운 자동 생성
+    let html = '<option value="risk">통합 위험도</option><optgroup label="개별 요소">';
+    for (const k in APP.factors) html += '<option value="f:' + k + '">' + (APP.flabels[k] || k) + '</option>';
+    html += '</optgroup><option value="diff">보행 난이도</option><option value="conf">현실 반영 신뢰도</option>';
+    document.getElementById("layerSel").innerHTML = html;
   }
   function cellRC(lon, lat) {
     const a = APP.area;
