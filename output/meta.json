@@ -1,22 +1,18 @@
 {
   "metrics": {
-    "train_r2": 0.998991454131073,
-    "test_r2": 0.9968345666172154,
-    "test_mae": 0.008655468949704651,
-    "feature_importance": {
-      "road_prox": 0.991,
-      "light_cnt": 0.007,
-      "cctv_cnt": 0.001,
-      "slope": 0.001
-    }
-  },
-  "route": {
-    "dist_m": 29473.4,
-    "weighted_cost": 107314.0,
-    "graph": {
-      "nodes": 81183,
-      "edges": 84396,
-      "largest_comp": 61346
+    "weights": {
+      "accident": 0.35,
+      "traffic": 0.2,
+      "light": 0.2,
+      "cctv": 0.1,
+      "slope": 0.15
+    },
+    "factor_labels": {
+      "accident": "교통사고 다발",
+      "traffic": "교통 노출(도로)",
+      "light": "야간 조도(가로등)",
+      "cctv": "CCTV 부재",
+      "slope": "급경사"
     }
   }
 }

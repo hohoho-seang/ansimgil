@@ -49,6 +49,11 @@
   #ctrl .layer { display:flex; gap:12px; font-size:12px; margin-top:6px; }
   #status { margin-top:8px; font-size:12px; min-height:16px; }
   #status b { color:#5fd08a; }
+  #ctrl select { width:100%; margin-top:4px; padding:5px 7px; border-radius:6px;
+     background:#11151d; color:#fff; border:1px solid #3a4152; font-size:12px; }
+  #analysis { margin-top:6px; font-size:12px; line-height:1.55; }
+  #analysis .bar2 { display:inline-block; height:8px; border-radius:4px; vertical-align:middle; margin:0 5px; }
+  #legend .bar.conf { background: linear-gradient(90deg,#e0a63c,#4aa3ff,#1560d0); }
 
   #ctrl .ac { position:relative; flex:1; min-width:0; }
   #ctrl .ac input { width:100%; box-sizing:border-box; }
@@ -106,9 +111,21 @@
     <div class="sep"></div>
     <label class="ck"><input type="checkbox" id="avoidDiff" /> 보행난이도 회피 경로</label>
     <div class="layer">레이어:
-      <label class="ck"><input type="radio" name="layer" id="layerRisk" checked /> 위험도</label>
-      <label class="ck"><input type="radio" name="layer" id="layerDiff" /> 보행난이도</label>
+      <select id="layerSel">
+        <option value="risk">통합 위험도</option>
+        <optgroup label="개별 요소">
+          <option value="f:accident">교통사고 다발</option>
+          <option value="f:traffic">교통 노출(도로)</option>
+          <option value="f:light">야간 조도(가로등)</option>
+          <option value="f:cctv">CCTV 부재</option>
+          <option value="f:slope">급경사</option>
+        </optgroup>
+        <option value="diff">보행 난이도</option>
+        <option value="conf">현실 반영 신뢰도</option>
+      </select>
     </div>
+    <label class="ck"><input type="checkbox" id="analyzeMode" /> 🔍 지점 분석(클릭 시 요소 기여도)</label>
+    <div id="analysis"></div>
     <div id="status">불러오는 중…</div>
   </div>
 
@@ -204,6 +221,13 @@
   function buildMatrices(grid) {
     APP.riskM = grid.risk;   // rows×cols 행렬(JSON)
     APP.diffM = grid.diff;
+    APP.confM = grid.conf;
+    APP.factors = {}; APP.weights = {}; APP.flabels = {};
+    for (const k in (grid.factors || {})) {
+      APP.factors[k] = grid.factors[k].layer;
+      APP.weights[k] = grid.factors[k].weight;
+      APP.flabels[k] = grid.factors[k].label;
+    }
   }
   function cellRC(lon, lat) {
     const a = APP.area;
@@ -330,23 +354,36 @@
     else { const t = (v - 0.5) / 0.5; r = 140 + 90 * t; g = 110 - 60 * t; b = 210 - 90 * t; }
     return [Math.round(r), Math.round(g), Math.round(b)];
   }
+  function confRGB(v) {   // 낮음=주황(불확실) → 높음=파랑(신뢰)
+    let r, g, b;
+    if (v < 0.5) { const t = v / 0.5; r = 224 - 100 * t; g = 166 - 30 * t; b = 60 + 195 * t; }
+    else { const t = (v - 0.5) / 0.5; r = 124 - 103 * t; g = 136 - 40 * t; b = 255 - 47 * t; }
+    return [Math.round(r), Math.round(g), Math.round(b)];
+  }
+  function getLayer(sel) {
+    if (sel === "diff") return { M: APP.diffM, rgb: diffRGB, title: "보행 난이도", thr: 0.10, bar: "diff" };
+    if (sel === "conf") return { M: APP.confM, rgb: confRGB, title: "현실 반영 신뢰도", thr: 0.04, bar: "conf" };
+    if (sel && sel.indexOf("f:") === 0) {
+      const k = sel.slice(2);
+      return { M: APP.factors[k], rgb: riskRGB, title: (APP.flabels[k] || k) + " (개별 요소)", thr: 0.05, bar: "risk" };
+    }
+    return { M: APP.riskM, rgb: riskRGB, title: "통합 위험도", thr: 0.06, bar: "risk" };
+  }
   // 지면에 입히는 히트맵 이미지(엔티티 1개) — 촘촘해도 가볍고 부드럽게 표시
-  function renderHeatmap(V, layer) {
+  function renderHeatmap(V, sel) {
     if (APP.heat) V.entities.remove(APP.heat);
-    APP.layer = layer;
-    const isRisk = layer === "risk";
-    const M = isRisk ? APP.riskM : APP.diffM;
-    const thr = isRisk ? 0.08 : 0.12;
+    APP.layerSel = sel;
+    const L = getLayer(sel), M = L.M;
+    if (!M) return;
     const rows = APP.rows, cols = APP.cols;
     const cv = document.createElement("canvas"); cv.width = cols; cv.height = rows;
     const ctx = cv.getContext("2d");
     const img = ctx.createImageData(cols, rows);
-    const rgb = isRisk ? riskRGB : diffRGB;
     for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
       const v = M[r][c];
       const idx = ((rows - 1 - r) * cols + c) * 4;   // 캔버스 위쪽 = 북(lat_max)
-      if (v < thr) { img.data[idx + 3] = 0; continue; }
-      const col = rgb(v);
+      if (v < L.thr) { img.data[idx + 3] = 0; continue; }
+      const col = L.rgb(v);
       img.data[idx] = col[0]; img.data[idx + 1] = col[1]; img.data[idx + 2] = col[2];
       img.data[idx + 3] = 185;
     }
@@ -359,8 +396,29 @@
         height: 2,
       },
     });
-    document.getElementById("legendTitle").textContent = isRisk ? "위험도 (risk)" : "보행난이도 (difficulty)";
-    document.getElementById("legendBar").className = "bar " + (isRisk ? "risk" : "diff");
+    document.getElementById("legendTitle").textContent = L.title;
+    document.getElementById("legendBar").className = "bar " + L.bar;
+  }
+  // 지점 클릭 → 위험도 요소별 기여도 % + 신뢰도
+  function analyzeCell(lon, lat) {
+    const rc = cellRC(lon, lat), r = rc[0], c = rc[1];
+    const risk = APP.riskM[r][c], conf = APP.confM[r][c];
+    const el = document.getElementById("analysis");
+    if (risk < 0.03) { el.innerHTML = "<b>지점 분석</b><br>이 지점은 위험 요소가 낮습니다 (도로에서 먼 곳일 수 있음)."; return; }
+    const items = Object.keys(APP.weights).map((k) => ({
+      label: APP.flabels[k], contrib: APP.weights[k] * APP.factors[k][r][c],
+    }));
+    const total = items.reduce((s, i) => s + i.contrib, 0) || 1e-9;
+    items.sort((a, b) => b.contrib - a.contrib);
+    let html = "<b>📊 지점 분석</b><br>위험도 <b style='color:#ff8a6a'>" + risk.toFixed(2) +
+      "</b> · 현실반영 신뢰도 <b style='color:#5fa8ff'>" + Math.round(conf * 100) + "%</b><br>" +
+      "<span style='opacity:.7'>요소별 기여도:</span><br>";
+    items.forEach((i) => {
+      const pct = Math.round(i.contrib / total * 100);
+      html += i.label + " <span class='bar2' style='width:" + Math.max(2, pct) +
+        "px;background:#ff7a4d'></span> <b>" + pct + "%</b><br>";
+    });
+    el.innerHTML = html;
   }
   // V-World 3D 건물 타일 숨김 (top-down 위험도 지도에 집중). 늦게 로드되므로 몇 번 재시도.
   function hideBuildings(V) {
@@ -570,8 +628,7 @@
     document.getElementById("clickStartBtn").addEventListener("click", () => { APP.nextClick = "start"; setStatus("지도에서 출발지를 클릭하세요."); });
     document.getElementById("clickGoalBtn").addEventListener("click", () => { APP.nextClick = "goal"; setStatus("지도에서 도착지를 클릭하세요."); });
     document.getElementById("avoidDiff").addEventListener("change", () => computeRoute(V));
-    document.getElementById("layerRisk").addEventListener("change", () => renderHeatmap(V, "risk"));
-    document.getElementById("layerDiff").addEventListener("change", () => renderHeatmap(V, "diff"));
+    document.getElementById("layerSel").addEventListener("change", (e) => renderHeatmap(V, e.target.value));
 
     // 지도 클릭 → 출발/도착 지정
     const handler = new Cesium.ScreenSpaceEventHandler(V.scene.canvas);
@@ -581,6 +638,7 @@
       if (!pos) return;
       const carto = Cesium.Cartographic.fromCartesian(pos);
       const lon = Cesium.Math.toDegrees(carto.longitude), lat = Cesium.Math.toDegrees(carto.latitude);
+      if (document.getElementById("analyzeMode").checked) { analyzeCell(lon, lat); return; } // 분석 모드
       if (APP.nextClick === "start") { setStart(V, lon, lat); APP.nextClick = "goal"; setStatus("도착지를 지정하세요."); }
       else { setGoal(V, lon, lat); APP.nextClick = "start"; computeRoute(V); }
     }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
