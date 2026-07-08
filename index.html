@@ -236,6 +236,10 @@
     APP.aspect = grid.aspect || null;
     APP.accidents = grid.accidents || [];
     APP.validation = grid.validation || null;
+    APP.alleyW = grid.alley_width_m || null;                 // 골목 폭(m), -1=데이터없음
+    APP.widthNarrow = APP.alleyW
+      ? APP.alleyW.map((row) => row.map((w) => (w >= 0 ? Math.max(0, Math.min(1, (15 - w) / 13)) : 0)))
+      : null;                                                // 좁을수록 1(빨강)
   }
   function compass8(d) {
     if (d < 0) return "평지";
@@ -245,6 +249,7 @@
     let html = '<option value="risk">통합 위험도</option><optgroup label="개별 요소">';
     for (const k in APP.factors) html += '<option value="f:' + k + '">' + (APP.flabels[k] || k) + '</option>';
     html += '</optgroup><option value="diff">보행 난이도</option><option value="conf">현실 반영 신뢰도</option>';
+    if (APP.alleyW) html += '<option value="width">골목 폭(원도심)</option>';
     document.getElementById("layerSel").innerHTML = html;
   }
   function cellRC(lon, lat) {
@@ -414,6 +419,7 @@
   function getLayer(sel) {
     if (sel === "diff") return { M: APP.diffM, rgb: diffRGB, title: "보행 난이도", thr: 0.10, bar: "diff" };
     if (sel === "conf") return { M: APP.confM, rgb: confRGB, title: "현실 반영 신뢰도", thr: 0.04, bar: "conf" };
+    if (sel === "width") return { M: APP.widthNarrow, rgb: riskRGB, title: "골목 폭 — 좁을수록 빨강(원도심)", thr: 0.05, bar: "risk" };
     if (sel && sel.indexOf("f:") === 0) {
       const k = sel.slice(2);
       return { M: APP.factors[k], rgb: riskRGB, title: (APP.flabels[k] || k) + " (개별 요소)", thr: 0.05, bar: "risk" };
@@ -472,6 +478,9 @@
     if (APP.slopeDeg) {
       html += "<span style='opacity:.7'>경사:</span> <b>" + APP.slopeDeg[r][c].toFixed(1) +
         "°</b> · 방향 <b>" + compass8(APP.aspect[r][c]) + "</b><br>";
+    }
+    if (APP.alleyW && APP.alleyW[r][c] >= 0) {
+      html += "<span style='opacity:.7'>골목 폭(추정):</span> <b>~" + Math.round(APP.alleyW[r][c]) + "m</b><br>";
     }
     el.innerHTML = html;
   }
