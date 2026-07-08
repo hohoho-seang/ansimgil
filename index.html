@@ -298,8 +298,8 @@
     const a = APP.area, bounds = [[a.lat_min, a.lon_min], [a.lat_max, a.lon_max]];
     const url = layerCanvas(L2).toDataURL();
     if (APP.heatLayer) APP.heatLayer.setUrl(url);
-    else APP.heatLayer = L.imageOverlay(url, bounds, { opacity: 0.6, interactive: false }).addTo(APP.map);
-    APP.heatLayer.setOpacity(0.6);
+    else APP.heatLayer = L.imageOverlay(url, bounds, { opacity: 0.72, interactive: false }).addTo(APP.map);
+    APP.heatLayer.setOpacity(0.72);
     document.getElementById("legendTitle").textContent = L2.title;
     document.getElementById("legendBar").className = "bar " + L2.bar;
   }
@@ -420,7 +420,7 @@
     if (APP.navWatch != null) { navigator.geolocation.clearWatch(APP.navWatch); APP.navWatch = null; }
     if (APP.streetLayer) APP.map.removeLayer(APP.streetLayer);   // 도로지도 → 위성
     if (APP.satLayer && !APP.map.hasLayer(APP.satLayer)) APP.satLayer.addTo(APP.map);
-    if (APP.heatLayer) APP.heatLayer.setOpacity(0.6);
+    if (APP.heatLayer) APP.heatLayer.setOpacity(0.72);
     if (APP.routeLayer) APP.routeLayer.setStyle({ weight: 6 });
     document.getElementById("navbar").classList.remove("on");
     document.getElementById("ctrl").classList.remove("collapsed");
