@@ -142,7 +142,7 @@
 (function () {
   const DOMAIN = window.VWORLD_DOMAIN || window.location.hostname || "localhost";
   const KEY = window.VWORLD_API_KEY || "";
-  const RISK_W = 4.0, DIFF_W = 4.0;         // 경로비용 가중치(파이썬 config와 동일 개념)
+  const RISK_W = 2.5, DIFF_W = 3.0;         // 경로비용 가중치(안전 vs 효율 균형)
   const MAXH = 45, ROAD_H = MAXH + 8, ROUTE_H = MAXH + 18;
   const R = 6371000;
 
@@ -202,6 +202,7 @@
     populateLayerSelect();
     if (roads.lines && roads.lines.length <= 800) drawRoads(V, roads); // 도로 많으면(시 전체) 오버레이 생략
     buildGraph(roads);
+    bridgeGaps(15);          // 끊긴 끝점 연결(횡단 지점 등)
     APP.comp = largestComponent();
     renderHeatmap(V, "risk");
     renderAccidents(V);
@@ -278,6 +279,39 @@
         APP.adj.get(k2).push({ to: k1, dist, risk, diff });
       }
     });
+  }
+  // 끊긴 끝점(막다른 노드)을 근처 노드에 연결 → OSM 갭/좁은길 횡단 지점을 이어줌(둘러가기 완화)
+  function bridgeGaps(maxM) {
+    const cell = 0.00018;                 // ≈15m (경도)
+    const buckets = new Map();
+    const bk = (lo, la) => Math.floor(lo / cell) + "," + Math.floor(la / cell);
+    for (const [k, ll] of APP.nodes) {
+      const b = bk(ll[0], ll[1]); if (!buckets.has(b)) buckets.set(b, []); buckets.get(b).push(k);
+    }
+    let added = 0;
+    for (const [k, edges] of APP.adj) {
+      if (edges.length !== 1) continue;   // 막다른 끝점만
+      const [lo, la] = APP.nodes.get(k);
+      const bx = Math.floor(lo / cell), by = Math.floor(la / cell);
+      let best = null, bd = maxM;
+      for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) {
+        const arr = buckets.get((bx + dx) + "," + (by + dy)); if (!arr) continue;
+        for (const k2 of arr) {
+          if (k2 === k) continue;
+          const [l2, a2] = APP.nodes.get(k2); const d = meters(lo, la, l2, a2);
+          if (d < bd) { bd = d; best = k2; }
+        }
+      }
+      if (best) {
+        const [l2, a2] = APP.nodes.get(best);
+        const risk = 0.5 * (valAt(APP.riskM, lo, la) + valAt(APP.riskM, l2, a2));
+        const diff = 0.5 * (valAt(APP.diffM, lo, la) + valAt(APP.diffM, l2, a2));
+        APP.adj.get(k).push({ to: best, dist: bd, risk, diff });
+        APP.adj.get(best).push({ to: k, dist: bd, risk, diff });
+        added++;
+      }
+    }
+    return added;
   }
   function largestComponent() {
     const seen = new Set(); let best = new Set();
