@@ -74,6 +74,29 @@
   #legend .row { display:flex; justify-content:space-between; width:180px; font-size:11px; opacity:.85; }
   #err { top:50%; left:50%; transform:translate(-50%,-50%); background:rgba(150,24,24,.94);
          display:none; max-width:380px; }
+
+  /* 내비게이션 바(하단) */
+  #navbar { position:absolute; left:12px; right:12px; bottom:14px; z-index:25; display:none;
+    align-items:center; justify-content:space-between; gap:12px;
+    background:rgba(20,24,33,.94); color:#fff; border-radius:14px; padding:12px 16px;
+    box-shadow:0 6px 22px rgba(0,0,0,.55); }
+  #navbar.on { display:flex; }
+  #navbar .dist { font-size:22px; font-weight:800; }
+  #navbar .dist small { font-size:12px; font-weight:400; opacity:.75; margin-left:4px; }
+  #navbar button { padding:11px 18px; border:0; border-radius:9px; background:#e2483a;
+    color:#fff; font-size:15px; font-weight:600; cursor:pointer; }
+  #navStartBtn { background:#12b886 !important; }
+
+  /* 모바일/태블릿: 컨트롤 축소, 터치 크게, 범례 숨김 */
+  @media (max-width: 860px) {
+    #ctrl { width: calc(100vw - 24px); max-height: 46vh; overflow-y:auto; }
+    #ctrl.collapsed { max-height: 52px; overflow:hidden; }
+    #ctrl h4 { cursor:pointer; }
+    #ctrl button, #ctrl input, #ctrl select { min-height: 36px; font-size:13px; }
+    #legend { display:none; }
+    #title small { display:none; }
+    #title { font-size:14px; }
+  }
 </style>
 </head>
 <body>
@@ -104,6 +127,9 @@
     </div>
     <div class="hint">장소명을 입력해 추천 목록에서 선택하세요. 지도 클릭도 가능(출발→도착).</div>
     <div class="row">
+      <button id="navStartBtn" class="primary">🧭 내비게이션 시작</button>
+    </div>
+    <div class="row">
       <button id="simBtn" class="primary">▶ 경로 따라가기</button>
       <button id="trackBtn">실시간 위치</button>
       <button id="simStopBtn">⏹ 정지</button>
@@ -127,6 +153,11 @@
     <label class="ck"><input type="checkbox" id="analyzeMode" /> 🔍 지점 분석(클릭 시 요소 기여도)</label>
     <div id="analysis"></div>
     <div id="status">불러오는 중…</div>
+  </div>
+
+  <div id="navbar">
+    <div class="dist" id="navdist">–</div>
+    <button id="navEndBtn">✕ 종료</button>
   </div>
 
   <div id="legend" class="panel">
@@ -603,6 +634,69 @@
       orientation: { heading: 0, pitch: Cesium.Math.toRadians(-85), roll: 0 }, duration: 2.0 });
   }
 
+  // ── 내비게이션 모드 (모바일 위주: 방향·남은거리·지도 따라오기) ─────────
+  function fmtDist(m) { return m >= 1000 ? (m / 1000).toFixed(2) + "km" : Math.round(m) + "m"; }
+  function remainingDistance(lon, lat) {
+    const pts = APP.lastRoute; if (!pts || pts.length < 2) return 0;
+    let bi = 0, bd = Infinity;
+    for (let i = 0; i < pts.length; i++) { const d = meters(lon, lat, pts[i][0], pts[i][1]); if (d < bd) { bd = d; bi = i; } }
+    let rem = meters(lon, lat, pts[bi][0], pts[bi][1]);
+    for (let i = bi; i < pts.length - 1; i++) rem += meters(pts[i][0], pts[i][1], pts[i + 1][0], pts[i + 1][1]);
+    return rem;
+  }
+  function requestHeading() {
+    const handler = (e) => {
+      let h = null;
+      if (e.webkitCompassHeading != null) h = e.webkitCompassHeading;   // iOS: 0=북 시계
+      else if (e.alpha != null) h = 360 - e.alpha;                       // Android
+      if (h != null && !isNaN(h)) APP.compassHeading = ((h % 360) + 360) % 360;
+    };
+    const DOE = window.DeviceOrientationEvent;
+    if (DOE && typeof DOE.requestPermission === "function") {
+      DOE.requestPermission().then((s) => { if (s === "granted") window.addEventListener("deviceorientation", handler, true); }).catch(() => {});
+    } else if (DOE) {
+      window.addEventListener("deviceorientationabsolute", handler, true);
+      window.addEventListener("deviceorientation", handler, true);
+    }
+  }
+  function onNavPos(V, pos) {
+    let lon = pos.coords.longitude, lat = pos.coords.latitude;
+    if (!inArea(lon, lat)) { const p = clampArea(lon, lat); lon = p[0]; lat = p[1]; }
+    let hd = APP.compassHeading;
+    if (hd == null && pos.coords.heading != null && !isNaN(pos.coords.heading)) hd = pos.coords.heading;
+    if (hd == null) hd = APP.lastHeading || 0;
+    APP.lastHeading = hd;
+    setMe(V, lon, lat);
+    const h = hd * Math.PI / 180, backM = 130;                          // 카메라를 사용자 뒤에 두고 전방 조망
+    const dLat = -Math.cos(h) * backM / 111000;
+    const dLon = -Math.sin(h) * backM / (111000 * Math.cos(lat * Math.PI / 180));
+    V.camera.setView({
+      destination: Cesium.Cartesian3.fromDegrees(lon + dLon, lat + dLat, 270),
+      orientation: { heading: h, pitch: Cesium.Math.toRadians(-45), roll: 0 },
+    });
+    const rem = remainingDistance(lon, lat);
+    document.getElementById("navdist").innerHTML =
+      rem < 25 ? "🏁 도착!" : (fmtDist(rem) + " <small>남음</small>");
+  }
+  function startNav(V) {
+    if (!APP.lastRoute || APP.lastRoute.length < 2) { setStatus("먼저 경로를 만들어 주세요."); return; }
+    if (!navigator.geolocation) { setStatus("이 기기는 GPS 미지원."); return; }
+    APP.navMode = true;
+    document.getElementById("navbar").classList.add("on");
+    document.getElementById("ctrl").classList.add("collapsed");
+    requestHeading();
+    APP.navWatch = navigator.geolocation.watchPosition(
+      (pos) => onNavPos(V, pos), () => setStatus("위치 권한이 필요합니다."),
+      { enableHighAccuracy: true, maximumAge: 1000 });
+  }
+  function stopNav(V) {
+    APP.navMode = false;
+    if (APP.navWatch != null) { navigator.geolocation.clearWatch(APP.navWatch); APP.navWatch = null; }
+    document.getElementById("navbar").classList.remove("on");
+    document.getElementById("ctrl").classList.remove("collapsed");
+    flyToArea(V);
+  }
+
   // ── 입력(주소·GPS·클릭) ────────────────────────────────────────
   function inArea(lon, lat) {
     const a = APP.area;
@@ -688,6 +782,12 @@
   function bindUI(V) {
     attachSearch(V, document.getElementById("startAddr"), document.getElementById("startSugg"), "start");
     attachSearch(V, document.getElementById("goalAddr"), document.getElementById("goalSugg"), "goal");
+    document.getElementById("navStartBtn").addEventListener("click", () => startNav(V));
+    document.getElementById("navEndBtn").addEventListener("click", () => stopNav(V));
+    // 모바일/태블릿: 제목 탭으로 컨트롤 접기/펼치기
+    document.querySelector("#ctrl h4").addEventListener("click", () => {
+      if (window.matchMedia("(max-width: 860px)").matches) document.getElementById("ctrl").classList.toggle("collapsed");
+    });
     document.getElementById("gpsBtn").addEventListener("click", () => {
       if (!navigator.geolocation) { setStatus("이 브라우저는 GPS 미지원."); return; }
       setStatus("현재 위치 확인 중…");
