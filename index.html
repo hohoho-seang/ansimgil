@@ -143,6 +143,7 @@
 
     buildMatrices(grid);
     populateLayerSelect();
+    APP.roadLines = roads.lines || [];   // 경사 화살표를 도로 방향에 정렬할 때 사용
     buildGraph(roads); bridgeGaps(15); APP.comp = largestComponent();
     renderHeatmap("risk");
     renderAccidents();
@@ -326,7 +327,48 @@
     APP.accLayer = L.layerGroup((APP.accidents || []).map((x) =>
       L.circleMarker([x[1], x[0]], { radius: 4, color: "#fff", weight: 1, fillColor: "#ff3838", fillOpacity: 0.9 }))).addTo(APP.map);
   }
+  // ── 경사 방향 화살표 (낮은 곳 → 높은 곳, 도로 방향에 정렬) ──
+  function segBearing(lo1, la1, lo2, la2) {
+    const ml = (la1 + la2) / 2 * Math.PI / 180;
+    const dE = (lo2 - lo1) * Math.cos(ml), dN = (la2 - la1);
+    return (Math.atan2(dE, dN) * 180 / Math.PI + 360) % 360;   // 0=북, 시계방향
+  }
+  function angDiff(a, b) { let d = Math.abs(a - b) % 360; return d > 180 ? 360 - d : d; }
+  function nearestRoadBearing(lon, lat) {
+    let best = Infinity, bb = -1, W = 0.0035;
+    for (const line of (APP.roadLines || [])) {
+      for (let i = 0; i < line.length - 1; i++) {
+        const p = line[i], q = line[i + 1];
+        if (Math.min(p[0], q[0]) - lon > W || lon - Math.max(p[0], q[0]) > W) continue;
+        if (Math.min(p[1], q[1]) - lat > W || lat - Math.max(p[1], q[1]) > W) continue;
+        const mx = (p[0] + q[0]) / 2, my = (p[1] + q[1]) / 2;
+        const d = (mx - lon) * (mx - lon) + (my - lat) * (my - lat);
+        if (d < best) { best = d; bb = segBearing(p[0], p[1], q[0], q[1]); }
+      }
+    }
+    return bb;
+  }
+  function alignToUphill(roadB, upB) {   // 도로 두 방향 중 오르막에 가까운 쪽 선택
+    if (roadB < 0) return upB;
+    const alt = (roadB + 180) % 360;
+    return angDiff(roadB, upB) <= angDiff(alt, upB) ? roadB : alt;
+  }
+  function drawSlopeArrow(lat, lon, bearing, deg) {
+    if (APP.slopeArrow) { APP.map.removeLayer(APP.slopeArrow); APP.slopeArrow = null; }
+    const col = deg >= 8 ? "#ff3b3b" : deg >= 5 ? "#ff9f1a" : "#33d17a";
+    const html = '<div style="transform:rotate(' + bearing.toFixed(1) + 'deg);transform-origin:50% 50%;filter:drop-shadow(0 0 2px #000)">'
+      + '<svg width="56" height="56" viewBox="-28 -28 56 56">'
+      + '<circle cx="0" cy="18" r="3.4" fill="' + col + '"/>'                       // 낮은 곳(꼬리)
+      + '<line x1="0" y1="17" x2="0" y2="-13" stroke="' + col + '" stroke-width="5" stroke-linecap="round"/>'
+      + '<path d="M0,-23 L9,-8 L-9,-8 Z" fill="' + col + '"/>'                        // 높은 곳(화살촉)
+      + '</svg></div>';
+    const icon = L.divIcon({ className: "", iconSize: [56, 56], iconAnchor: [28, 28], html: html });
+    APP.slopeArrow = L.marker([lat, lon], { icon: icon, interactive: false, zIndexOffset: 700 }).addTo(APP.map);
+  }
+  function clearSlopeArrow() { if (APP.slopeArrow) { APP.map.removeLayer(APP.slopeArrow); APP.slopeArrow = null; } }
+
   function analyzeCell(lon, lat) {
+    clearSlopeArrow();
     const rc = cellRC(lon, lat), r = rc[0], c = rc[1];
     const risk = APP.riskM[r][c], conf = APP.confM[r][c], el = document.getElementById("analysis");
     if (risk < 0.03) { el.innerHTML = "<b>지점 분석</b><br>위험 요소가 낮은 지점입니다."; return; }
@@ -334,7 +376,20 @@
     const total = items.reduce((s, i) => s + i.contrib, 0) || 1e-9; items.sort((a, b) => b.contrib - a.contrib);
     let html = "<b>📊 지점 분석</b><br>위험도 <b style='color:#ff8a6a'>" + risk.toFixed(2) + "</b> · 신뢰도 <b style='color:#5fa8ff'>" + Math.round(conf * 100) + "%</b><br>";
     items.forEach((i) => { const pct = Math.round(i.contrib / total * 100); html += i.label + " <span class='bar2' style='width:" + Math.max(2, pct) + "px;background:#ff7a4d'></span> <b>" + pct + "%</b><br>"; });
-    if (APP.slopeDeg) html += "<span style='opacity:.7'>경사:</span> <b>" + APP.slopeDeg[r][c].toFixed(1) + "°</b> · " + compass8(APP.aspect[r][c]) + "<br>";
+    if (APP.slopeDeg) {
+      const dg = APP.slopeDeg[r][c], asp = APP.aspect[r][c];
+      if (asp >= 0 && dg >= 2) {
+        const up = (asp + 180) % 360;                       // 오르막 방위(내리막+180)
+        const rb = nearestRoadBearing(lon, lat), ra = alignToUphill(rb, up);
+        // 도로가 경사와 얼추 나란할 때만 도로 방향에 정렬, 수직이면 실제 오르막 방향 사용.
+        const ab = (rb >= 0 && angDiff(ra, up) < 55) ? ra : up;
+        drawSlopeArrow(lat, lon, ab, dg);
+        html += "<span style='opacity:.7'>경사:</span> <b>" + dg.toFixed(1) + "°</b> · 오르막 " + compass8(ab)
+              + " <span style='opacity:.6'>(지도 화살표: 낮은→높은)</span><br>";
+      } else {
+        html += "<span style='opacity:.7'>경사:</span> <b>" + dg.toFixed(1) + "°</b> · 평지<br>";
+      }
+    }
     if (APP.alleyW && APP.alleyW[r][c] >= 0) html += "<span style='opacity:.7'>골목 폭:</span> <b>~" + Math.round(APP.alleyW[r][c]) + "m</b><br>";
     el.innerHTML = html;
   }
@@ -449,6 +504,7 @@
     APP.map.on("click", (e) => {
       const lon = e.latlng.lng, lat = e.latlng.lat;
       if (document.getElementById("analyzeMode").checked) { analyzeCell(lon, lat); return; }
+      clearSlopeArrow();
       if (APP.nextClick === "start") { setStart(lat, lon); APP.nextClick = "goal"; setStatus("도착지를 지정하세요."); }
       else { setGoal(lat, lon); APP.nextClick = "start"; computeRoute(); }
     });
