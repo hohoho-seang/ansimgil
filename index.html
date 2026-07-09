@@ -395,7 +395,11 @@
   }
   function showValidation() {
     const v = APP.validation; if (!v || !v["위험도_배수"]) return;
-    document.getElementById("analysis").innerHTML = "🎯 <b>검증(실제 사고 " + (v["사고표본수"] || 0) + "건)</b><br>사고지점 평균 <b style='color:#ff8a6a'>" + v["위험도_배수"] + "배</b> 위험 · <b>" + v["사고_상위25위험구간_포함율%"] + "%</b>가 상위25%<br><span style='opacity:.65'>빨간점=실제 사고지점</span>";
+    const zones = v["다발구역수"] || v["사고표본수"] || 0, acc = v["실제사고건수"], cas = v["사상자수"];
+    const scale = acc ? ("사고 다발구역 <b>" + zones + "곳</b> <span style='opacity:.7'>(실제 사고 " + acc + "건·사상자 " + cas + "명)</span>")
+                      : ("사고 다발구역 <b>" + zones + "곳</b>");
+    document.getElementById("analysis").innerHTML = "🎯 <b>검증(ground-truth)</b><br>" + scale
+      + "<br>다발구역 평균 <b style='color:#ff8a6a'>" + v["위험도_배수"] + "배</b> 위험 · <b>" + v["사고_상위25위험구간_포함율%"] + "%</b>가 상위25%<br><span style='opacity:.65'>빨간점=사고 다발구역</span>";
   }
 
   // ── 검색 (JSONP, 지도 무관) ──
