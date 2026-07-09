@@ -161,7 +161,8 @@
     APP.slopeDeg = g.slope_deg || null; APP.aspect = g.aspect || null;
     APP.accidents = g.accidents || []; APP.validation = g.validation || null;
     APP.alleyW = g.alley_width_m || null;
-    APP.widthNarrow = APP.alleyW ? APP.alleyW.map((row) => row.map((w) => (w >= 0 ? Math.max(0, Math.min(1, (15 - w) / 13)) : 0))) : null;
+    // 데이터 있는 셀(건물 사이 간격)은 최소 0.12로 옅게라도 칠하고, 좁을수록 붉게(1에 가깝게).
+    APP.widthNarrow = APP.alleyW ? APP.alleyW.map((row) => row.map((w) => (w >= 0 ? Math.max(0.12, Math.min(1, (16 - w) / 12)) : 0))) : null;
   }
   function cellRC(lon, lat) {
     const a = APP.area;
